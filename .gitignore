@@ -8,3 +8,13 @@ node_modules
 *.swo
 playwright-report
 test-results
+
+# Exclude problematic directories
+analytics-service/venv/
+.playwright/
+.next/
+node_modules/
+*.swp
+*.swo
+*~
+
