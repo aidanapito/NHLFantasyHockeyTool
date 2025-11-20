@@ -1,0 +1,10 @@
+node_modules
+.next
+.env
+.vercel
+*.log
+.DS_Store
+*.swp
+*.swo
+playwright-report
+test-results
