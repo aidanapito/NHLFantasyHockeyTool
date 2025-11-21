@@ -133,7 +133,9 @@ export default function TeamInfo() {
           throw new Error(data?.error || 'Failed to load teams from database')
         }
 
-        const normalized = normalizeTeams(data)
+        // API returns { teams: [...] }, so extract the teams array
+        const teamsArray = data.teams || (Array.isArray(data) ? data : [])
+        const normalized = normalizeTeams(teamsArray)
         setTeams(normalized)
         setLastLoadedAt(new Date().toISOString())
         if (normalized.length === 0) {

@@ -1,46 +1,63 @@
-import Link from 'next/link';
+'use client';
 
-export default function HomePage() {
+import { Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
+import Tabs, { Tab } from '@/components/Tabs';
+import StatsDisplay from '@/components/StatsDisplay';
+import TeamInfo from '@/components/TeamInfo';
+import Header from '@/components/Header';
+
+function HomePageContent() {
+  const searchParams = useSearchParams();
+  const tabParam = searchParams?.get('tab') || 'stats';
+
+  const tabs: Tab[] = [
+    {
+      id: 'stats',
+      label: 'Stats',
+      content: <StatsDisplay />,
+    },
+    {
+      id: 'team-info',
+      label: 'Team Info',
+      content: <TeamInfo />,
+    },
+  ];
+
+  // Determine default tab based on URL parameter
+  const defaultTab = tabParam === 'team-info' ? 'team-info' : 'stats';
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-8">
-      <div className="max-w-6xl mx-auto">
+    <div className="min-h-screen bg-gray-50">
+      <Header />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <h1 className="text-4xl font-bold text-gray-900 mb-8">
           NHL Fantasy Hockey Analyzer
         </h1>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <Link
-            href="/trade-analyzer"
-            className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow"
-          >
-            <h2 className="text-xl font-semibold mb-2">Trade Analyzer</h2>
-            <p className="text-gray-600">
-              Analyze trades and get recommendations
-            </p>
-          </Link>
-          
-          <Link
-            href="/matchup-analyzer"
-            className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow"
-          >
-            <h2 className="text-xl font-semibold mb-2">Matchup Analyzer</h2>
-            <p className="text-gray-600">
-              Analyze weekly matchups
-            </p>
-          </Link>
-          
-          <Link
-            href="/espn-setup"
-            className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow"
-          >
-            <h2 className="text-xl font-semibold mb-2">ESPN Setup</h2>
-            <p className="text-gray-600">
-              Connect your ESPN league
-            </p>
-          </Link>
-        </div>
+        <Tabs tabs={tabs} defaultTab={defaultTab} />
       </div>
     </div>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50">
+        <Header />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
+              <p className="text-gray-600">Loading...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    }>
+      <HomePageContent />
+    </Suspense>
   );
 }
 

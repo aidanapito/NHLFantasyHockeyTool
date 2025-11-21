@@ -587,7 +587,8 @@ export async function syncEspnLeagueToDatabase({
           const position = player.defaultPosition?.toUpperCase() || 'N/A'
           const teamAbbrev = player.proTeamAbbrev?.toUpperCase() || 'FA'
 
-          await tx.player.upsert({
+          // Upsert player and get the database ID (not nhlId)
+          const dbPlayer = await tx.player.upsert({
             where: { nhlId },
             update: {
               fullName,
@@ -608,7 +609,7 @@ export async function syncEspnLeagueToDatabase({
 
           rosterRecords.push({
             teamId: savedTeam.id,
-            playerId: nhlId,
+            playerId: dbPlayer.id, // Use database ID, not nhlId
             slotPosition: (player.lineupSlot ?? 'BN').toString().toUpperCase(),
           })
           playerCount += 1

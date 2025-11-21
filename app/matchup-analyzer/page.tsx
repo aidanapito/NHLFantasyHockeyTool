@@ -1,19 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import Header from '@/components/Header';
+import MatchupAnalyzer from '@/components/MatchupAnalyzer';
 
 export default function MatchupAnalyzerPage() {
-  const [team1, setTeam1] = useState('');
-  const [team2, setTeam2] = useState('');
-  
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold mb-6">Matchup Analyzer</h1>
-        
-        <div className="bg-white rounded-lg shadow p-6">
-          <p className="text-gray-600">Matchup analyzer coming soon</p>
-        </div>
+    <div className="min-h-screen bg-gray-50">
+      <Header />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <h1 className="text-4xl font-bold text-gray-900 mb-8">
+          Matchup Analyzer
+        </h1>
+        <MatchupAnalyzer />
       </div>
     </div>
   );
