@@ -1,23 +1,20 @@
-import type { Metadata } from 'next'
-import './globals.css'
-import Header from '@/components/Header'
+import type { Metadata } from 'next';
+import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Fantasy Hockey Trade Analyzer',
-  description: 'Analyze fantasy hockey trades with real-time player valuations',
-}
+  title: 'NHL Fantasy Hockey Analyzer',
+  description: 'Advanced analytics for fantasy hockey',
+};
 
 export default function RootLayout({
   children,
 }: {
-  children: React.ReactNode
+  children: React.ReactNode;
 }) {
   return (
     <html lang="en">
-      <body className="antialiased">
-        <Header />
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
-  )
+  );
 }
+
