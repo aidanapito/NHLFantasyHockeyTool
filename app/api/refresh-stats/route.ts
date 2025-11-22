@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 import { prisma } from '@/lib/prisma';
+import { ensurePlayerExists } from '@/lib/player-matcher';
 import axios from 'axios';
 
 const NHL_STATS_API_BASE = 'https://api.nhle.com/stats/rest/en';
@@ -367,59 +368,51 @@ async function processSeason(season: string) {
 
   for (const skater of summaryStats) {
     try {
-      // Check if player already exists
-      let dbPlayer = await prisma.player.findUnique({
-        where: { nhlId: skater.playerId },
+      // Try to fetch detailed player info, but don't fail if it doesn't work
+      let playerDetails = null;
+      try {
+        playerDetails = await fetchPlayerDetails(skater.playerId);
+      } catch (error) {
+        console.log(`Could not fetch details for player ${skater.playerId}, using basic info`);
+      }
+
+      const player = playerDetails?.player || {};
+      
+      // Parse name from stats or player details
+      const nameParts = (skater.skaterFullName || "").split(' ');
+      const firstName = player.firstName?.default || nameParts[0] || "";
+      const lastName = player.lastName?.default || nameParts.slice(1).join(' ') || skater.skaterFullName || "";
+      const fullName = (player.firstName?.default && player.lastName?.default)
+        ? `${player.firstName.default} ${player.lastName.default}`
+        : (skater.skaterFullName || `${firstName} ${lastName}`).trim() || "Unknown Player";
+
+      // Use player matcher to ensure player exists (matches by NHL ID or name)
+      const playerResult = await ensurePlayerExists({
+        nhlId: skater.playerId,
+        fullName: fullName || skater.skaterFullName || "Unknown Player",
+        firstName: firstName || "Unknown",
+        lastName: lastName || "Player",
+        position: skater.positionCode || "C",
+        team: skater.teamAbbrevs?.split(',')[0] || null,
+        jerseyNumber: player.sweaterNumber || null,
+        height: player.heightInInches ? convertHeightToFeetInches(player.heightInInches) : null,
+        weight: player.weightInPounds || null,
+        birthDate: player.birthDate ? new Date(player.birthDate) : null,
+        birthCity: player.birthCity?.default || null,
+        birthCountry: player.birthCountry || null,
+        nationality: player.birthCountry ? getNationalityFromCountry(player.birthCountry) : null,
+        headshot: player.headshot || `https://assets.nhle.com/mugs/nhl/latest/${skater.playerId}.png`,
+        isActive: true,
       });
 
-      if (!dbPlayer) {
-        // Try to fetch detailed player info, but don't fail if it doesn't work
-        let playerDetails = null;
-        try {
-          playerDetails = await fetchPlayerDetails(skater.playerId);
-        } catch (error) {
-          console.log(`Could not fetch details for player ${skater.playerId}, using basic info`);
-        }
-
-        const player = playerDetails?.player || {};
-        
-        // Create new player using basic info from stats, enhanced with details if available
-        const nameParts = (skater.skaterFullName || "").split(' ');
-        const firstName = player.firstName?.default || nameParts[0] || "";
-        const lastName = player.lastName?.default || nameParts.slice(1).join(' ') || skater.skaterFullName || "";
-        const fullName = (player.firstName?.default && player.lastName?.default)
-          ? `${player.firstName.default} ${player.lastName.default}`
-          : (skater.skaterFullName || `${firstName} ${lastName}`).trim() || "Unknown Player";
-        
-        try {
-          dbPlayer = await prisma.player.create({
-            data: {
-              nhlId: skater.playerId,
-              firstName: firstName || "Unknown",
-              lastName: lastName || "Player",
-              fullName: fullName || skater.skaterFullName || "Unknown Player",
-              position: skater.positionCode || "C",
-              team: skater.teamAbbrevs?.split(',')[0] || null,
-              jerseyNumber: player.sweaterNumber || null,
-              height: player.heightInInches ? convertHeightToFeetInches(player.heightInInches) : null,
-              weight: player.weightInPounds || null,
-              birthDate: player.birthDate ? new Date(player.birthDate) : null,
-              birthCity: player.birthCity?.default || null,
-              birthCountry: player.birthCountry || null,
-              nationality: player.birthCountry ? getNationalityFromCountry(player.birthCountry) : null,
-              headshot: player.headshot || `https://assets.nhle.com/mugs/nhl/latest/${skater.playerId}.png`,
-              isActive: true,
-            },
-          });
-
-          newPlayers++;
-          await new Promise(resolve => setTimeout(resolve, 100));
-        } catch (createError: any) {
-          console.error(`Error creating player ${skater.playerId}:`, createError.message);
-          errors++;
-          continue; // Skip to next player if creation fails
-        }
+      if (playerResult.created) {
+        newPlayers++;
       }
+
+      // Get the player record
+      const dbPlayer = await prisma.player.findUnique({
+        where: { id: playerResult.id },
+      });
 
       // Verify we have a valid player record
       if (!dbPlayer || !dbPlayer.id) {
@@ -524,57 +517,56 @@ async function processSeason(season: string) {
   // Process goalies
   for (const goalie of goalieStats) {
     try {
-      let dbPlayer = await prisma.player.findUnique({
-        where: { nhlId: goalie.playerId },
+      // Try to fetch detailed player info, but don't fail if it doesn't work
+      let playerDetails = null;
+      try {
+        playerDetails = await fetchPlayerDetails(goalie.playerId);
+      } catch (error) {
+        console.log(`Could not fetch details for goalie ${goalie.playerId}, using basic info`);
+      }
+
+      const player = playerDetails?.player || {};
+      
+      // Parse name from stats or player details
+      const nameParts = (goalie.goalieFullName || "").split(' ');
+      const firstName = player.firstName?.default || nameParts[0] || "";
+      const lastName = player.lastName?.default || nameParts.slice(1).join(' ') || goalie.goalieFullName || "";
+      const fullName = (player.firstName?.default && player.lastName?.default)
+        ? `${player.firstName.default} ${player.lastName.default}`
+        : (goalie.goalieFullName || `${firstName} ${lastName}`).trim() || "Unknown Player";
+
+      // Use player matcher to ensure player exists (matches by NHL ID or name)
+      const playerResult = await ensurePlayerExists({
+        nhlId: goalie.playerId,
+        fullName: fullName || goalie.goalieFullName || "Unknown Player",
+        firstName: firstName || "Unknown",
+        lastName: lastName || "Player",
+        position: "G",
+        team: goalie.teamAbbrevs?.split(',')[0] || null,
+        jerseyNumber: player.sweaterNumber || null,
+        height: player.heightInInches ? convertHeightToFeetInches(player.heightInInches) : null,
+        weight: player.weightInPounds || null,
+        birthDate: player.birthDate ? new Date(player.birthDate) : null,
+        birthCity: player.birthCity?.default || null,
+        birthCountry: player.birthCountry || null,
+        nationality: player.birthCountry ? getNationalityFromCountry(player.birthCountry) : null,
+        headshot: player.headshot || `https://assets.nhle.com/mugs/nhl/latest/${goalie.playerId}.png`,
+        isActive: true,
       });
 
-      if (!dbPlayer) {
-        // Try to fetch detailed player info, but don't fail if it doesn't work
-        let playerDetails = null;
-        try {
-          playerDetails = await fetchPlayerDetails(goalie.playerId);
-        } catch (error) {
-          console.log(`Could not fetch details for goalie ${goalie.playerId}, using basic info`);
-        }
+      if (playerResult.created) {
+        newPlayers++;
+      }
 
-        const player = playerDetails?.player || {};
-        
-        // Create new player using basic info from stats, enhanced with details if available
-        const nameParts = (goalie.goalieFullName || "").split(' ');
-        const firstName = player.firstName?.default || nameParts[0] || "";
-        const lastName = player.lastName?.default || nameParts.slice(1).join(' ') || goalie.goalieFullName || "";
-        const fullName = (player.firstName?.default && player.lastName?.default)
-          ? `${player.firstName.default} ${player.lastName.default}`
-          : (goalie.goalieFullName || `${firstName} ${lastName}`).trim() || "Unknown Player";
-        
-        try {
-          dbPlayer = await prisma.player.create({
-            data: {
-              nhlId: goalie.playerId,
-              firstName: firstName || "Unknown",
-              lastName: lastName || "Player",
-              fullName: fullName || goalie.goalieFullName || "Unknown Player",
-              position: "G",
-              team: goalie.teamAbbrevs?.split(',')[0] || null,
-              jerseyNumber: player.sweaterNumber || null,
-              height: player.heightInInches ? convertHeightToFeetInches(player.heightInInches) : null,
-              weight: player.weightInPounds || null,
-              birthDate: player.birthDate ? new Date(player.birthDate) : null,
-              birthCity: player.birthCity?.default || null,
-              birthCountry: player.birthCountry || null,
-              nationality: player.birthCountry ? getNationalityFromCountry(player.birthCountry) : null,
-              headshot: player.headshot || `https://assets.nhle.com/mugs/nhl/latest/${goalie.playerId}.png`,
-              isActive: true,
-            },
-          });
+      // Get the player record
+      const dbPlayer = await prisma.player.findUnique({
+        where: { id: playerResult.id },
+      });
 
-          newPlayers++;
-          await new Promise(resolve => setTimeout(resolve, 100));
-        } catch (createError: any) {
-          console.error(`Error creating goalie ${goalie.playerId}:`, createError.message);
-          errors++;
-          continue; // Skip to next goalie if creation fails
-        }
+      if (!dbPlayer || !dbPlayer.id) {
+        console.error(`Invalid player record for goalie ${goalie.playerId}, skipping stats`);
+        errors++;
+        continue;
       }
 
       await prisma.playerStats.upsert({

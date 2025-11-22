@@ -576,10 +576,6 @@ export async function syncEspnLeagueToDatabase({
       await Promise.all(
         team.roster.map(async player => {
           const nhlId = typeof player.playerId === 'number' ? player.playerId : null
-          if (!nhlId || nhlId <= 0) {
-            return
-          }
-
           const fullName = player.fullName || 'Unknown Player'
           const nameParts = fullName.trim().split(' ').filter(Boolean)
           const firstName = nameParts.shift() || fullName
@@ -587,25 +583,72 @@ export async function syncEspnLeagueToDatabase({
           const position = player.defaultPosition?.toUpperCase() || 'N/A'
           const teamAbbrev = player.proTeamAbbrev?.toUpperCase() || 'FA'
 
-          // Upsert player and get the database ID (not nhlId)
-          const dbPlayer = await tx.player.upsert({
-            where: { nhlId },
-            update: {
-              fullName,
-              firstName,
-              lastName,
-              position,
-              team: teamAbbrev,
-            },
-            create: {
-              nhlId,
-              fullName,
-              firstName,
-              lastName,
-              position,
-              team: teamAbbrev,
-            },
-          })
+          // Use player matcher to find or create player
+          // First try to find by NHL ID
+          let dbPlayer = null
+          if (nhlId && nhlId > 0) {
+            dbPlayer = await tx.player.findUnique({
+              where: { nhlId },
+            })
+          }
+
+          // If not found by NHL ID, try name matching
+          if (!dbPlayer) {
+            const nameMatch = await tx.player.findFirst({
+              where: {
+                AND: [
+                  { firstName: { equals: firstName, mode: 'insensitive' } },
+                  { lastName: { equals: lastName, mode: 'insensitive' } },
+                  ...(position !== 'N/A' ? [{ position }] : []),
+                ],
+              },
+            })
+            if (nameMatch) {
+              dbPlayer = nameMatch
+            }
+          }
+
+          // Create player if not found
+          if (!dbPlayer) {
+            // Generate a temporary negative NHL ID if none provided
+            let finalNhlId = nhlId && nhlId > 0 ? nhlId : -1
+            if (finalNhlId <= 0) {
+              const existingNegativeIds = await tx.player.findMany({
+                where: { nhlId: { lt: 0 } },
+                select: { nhlId: true },
+                orderBy: { nhlId: 'asc' },
+                take: 1,
+              })
+              finalNhlId = existingNegativeIds.length > 0 
+                ? existingNegativeIds[0].nhlId - 1 
+                : -1
+            }
+
+            dbPlayer = await tx.player.create({
+              data: {
+                nhlId: finalNhlId,
+                fullName,
+                firstName,
+                lastName,
+                position,
+                team: teamAbbrev,
+              },
+            })
+          } else {
+            // Update existing player with latest info
+            dbPlayer = await tx.player.update({
+              where: { id: dbPlayer.id },
+              data: {
+                fullName,
+                firstName,
+                lastName,
+                position,
+                team: teamAbbrev,
+                // Update NHL ID if we have one and it's missing
+                ...(nhlId && nhlId > 0 && !dbPlayer.nhlId && { nhlId }),
+              },
+            })
+          }
 
           rosterRecords.push({
             teamId: savedTeam.id,
