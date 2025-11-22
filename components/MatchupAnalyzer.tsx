@@ -106,7 +106,9 @@ export default function MatchupAnalyzer() {
         if (!response.ok) {
           throw new Error(data?.error || 'Failed to fetch teams from database')
         }
-        const mapped: TeamOption[] = (Array.isArray(data) ? data : []).map((team: any) => ({
+        // API returns { teams: [...] }, so extract the teams array
+        const teamsArray = data.teams || (Array.isArray(data) ? data : [])
+        const mapped: TeamOption[] = teamsArray.map((team: any) => ({
           key: `db:${team.id}`,
           label: team.teamName ?? team.name ?? `Team ${team.id}`,
           reference: {
