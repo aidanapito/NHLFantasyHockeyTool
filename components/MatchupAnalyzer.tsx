@@ -912,64 +912,6 @@ export default function MatchupAnalyzer() {
               </div>
             </div>
           </div>
-
-          {/* Player Breakdown - Collapsible */}
-          <details className="bg-white rounded-lg shadow-md p-6">
-            <summary className="text-xl font-bold cursor-pointer mb-4 text-gray-900">
-              Player Breakdown
-            </summary>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-              {/* Team 1 Players */}
-              <div>
-                <h4 className="font-semibold text-lg mb-3 text-blue-600">
-                  {analysis.team1.teamName}
-                </h4>
-                <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {analysis.team1.playerBreakdown
-                    .sort((a, b) => b.gamesCount - a.gamesCount)
-                    .map((player) => (
-                      <div
-                        key={player.playerId}
-                        className="flex justify-between items-center p-2 bg-gray-50 rounded"
-                      >
-                        <div>
-                          <p className="font-medium text-gray-900">{player.playerName}</p>
-                          <p className="text-sm text-gray-600">
-                            {player.nhlTeam || 'No Team'}
-                          </p>
-                        </div>
-                        <span className="font-semibold text-blue-600">{player.gamesCount}</span>
-                      </div>
-                    ))}
-                </div>
-              </div>
-
-              {/* Team 2 Players */}
-              <div>
-                <h4 className="font-semibold text-lg mb-3 text-red-600">
-                  {analysis.team2.teamName}
-                </h4>
-                <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {analysis.team2.playerBreakdown
-                    .sort((a, b) => b.gamesCount - a.gamesCount)
-                    .map((player) => (
-                      <div
-                        key={player.playerId}
-                        className="flex justify-between items-center p-2 bg-gray-50 rounded"
-                      >
-                        <div>
-                          <p className="font-medium text-gray-900">{player.playerName}</p>
-                          <p className="text-sm text-gray-600">
-                            {player.nhlTeam || 'No Team'}
-                          </p>
-                        </div>
-                        <span className="font-semibold text-red-600">{player.gamesCount}</span>
-                      </div>
-                    ))}
-                </div>
-              </div>
-            </div>
-          </details>
         </div>
       )}
     </div>
