@@ -12,22 +12,18 @@ function NavigationLinks() {
   const searchParams = useSearchParams()
 
   const isActive = (path: string) => {
-    if (path === '/') {
-      const tab = searchParams?.get('tab')
-      return pathname === '/' && !tab
-    }
     if (path === '/?tab=stats') {
+      // Treat stats view as the logical home page
       return pathname === '/' && searchParams?.get('tab') === 'stats'
-    }
-    if (path === '/?tab=team-info') {
+    } else if (path === '/?tab=team-info') {
       return pathname === '/' && searchParams?.get('tab') === 'team-info'
     }
     return pathname?.startsWith(path)
   }
 
   const navItems = [
-    { href: '/', label: 'Home', icon: Home },
-    { href: '/?tab=stats', label: 'Stats', icon: BarChart3 },
+    // Home points to the stats tab, which is the main landing page
+    { href: '/?tab=stats', label: 'Home', icon: Home },
     { href: '/?tab=team-info', label: 'Team Info', icon: Users },
     { href: '/matchup-analyzer', label: 'Matchup Analyzer', icon: BarChart3 },
   ]
@@ -62,8 +58,8 @@ function NavigationLinks() {
 
 function NavigationLinksFallback() {
   const navItems = [
-    { href: '/', label: 'Home', icon: Home },
-    { href: '/?tab=stats', label: 'Stats', icon: BarChart3 },
+    // Fallback mirrors main nav: Home => stats view
+    { href: '/?tab=stats', label: 'Home', icon: Home },
     { href: '/?tab=team-info', label: 'Team Info', icon: Users },
     { href: '/matchup-analyzer', label: 'Matchup Analyzer', icon: BarChart3 },
   ]
