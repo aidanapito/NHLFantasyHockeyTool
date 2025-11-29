@@ -188,3 +188,36 @@ model GameLog {
   @@index([gameId])
   @@index([team, gameDate])
 }
+
+model PlayerProjection {
+  id                 Int      @id @default(autoincrement())
+  playerId           Int
+  gameDate           DateTime
+  season             String
+  modelVersion       String
+  predictedGoals     Float?   @default(0)
+  predictedAssists   Float?   @default(0)
+  predictedPoints    Float?   @default(0)
+  predictedShots     Float?   @default(0)
+  predictedShotsOnGoal Float? @default(0)
+  predictedHits      Float?   @default(0)
+  predictedBlocks    Float?   @default(0)
+  predictedPowerPlayPoints Float? @default(0)
+  predictedPlusMinus Float?   @default(0)
+  predictedPim       Float?   @default(0)
+  predictedToiSeconds Float?  @default(0)
+  predictedWins      Float?   @default(0)
+  predictedSaves     Float?   @default(0)
+  predictedShotsAgainst Float? @default(0)
+  predictedGoalsAgainst Float? @default(0)
+  predictedSavePct   Float?   @default(0)
+  predictedShutouts  Float?   @default(0)
+  createdAt          DateTime @default(now())
+
+  player             Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([playerId, gameDate, modelVersion])
+  @@index([gameDate])
+  @@index([season])
+}
+
