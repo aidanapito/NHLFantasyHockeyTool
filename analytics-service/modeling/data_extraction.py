@@ -33,6 +33,9 @@ def get_engine():
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
         raise RuntimeError("DATABASE_URL environment variable is not set")
+    # Remove Prisma-specific schema parameter (not valid for psycopg2)
+    if "?schema=" in database_url:
+        database_url = database_url.split("?")[0]
     return create_engine(database_url)
 
 

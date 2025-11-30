@@ -34,8 +34,18 @@ class FeatureTables:
 
 
 def _compute_age(birth_date: pd.Series, as_of_date: pd.Series) -> pd.Series:
+    # Convert to datetime and handle None/NaT values
+    birth_date = pd.to_datetime(birth_date, errors='coerce')
+    as_of_date = pd.to_datetime(as_of_date, errors='coerce')
+    
+    # Compute age only where both dates are valid
     age_years = (as_of_date - birth_date).dt.days / 365.25
-    return age_years.fillna(age_years.median())
+    
+    # Fill missing values with median age (computed from valid values)
+    median_age = age_years.median()
+    if pd.isna(median_age):
+        median_age = 25.0  # Default fallback if no valid ages
+    return age_years.fillna(median_age)
 
 
 def build_feature_tables(
@@ -63,14 +73,12 @@ def build_feature_tables(
     gl["days_since_season_start"] = (gl["game_date"] - gl["season_start"]).dt.days
     gl["day_of_week"] = gl["game_date"].dt.weekday
 
-    # Sort for rolling operations
+    # Sort for rolling operations and ensure unique index
     gl.sort_values(["player_id", "game_date"], inplace=True)
+    gl.reset_index(drop=True, inplace=True)
 
     # Rolling / recent-form features
     for w in ROLLING_WINDOWS:
-        window_group = gl.groupby("player_id").rolling(
-            window=w, on="game_date", min_periods=1
-        )
         for stat in [
             "goals",
             "assists",
@@ -84,9 +92,15 @@ def build_feature_tables(
             "toi_seconds",
         ]:
             mean_col = f"{stat}_roll{w}_mean"
-            gl[mean_col] = (
-                window_group[stat].mean().reset_index(level=0, drop=True)
+            # Compute rolling mean per player, then shift to avoid leakage
+            rolled = (
+                gl.groupby("player_id")[stat]
+                .rolling(window=w, min_periods=1)
+                .mean()
+                .reset_index(level=0, drop=True)
             )
+            # Assign using integer positions to avoid index alignment issues
+            gl[mean_col] = rolled.values
 
         # Shift so we only use *previous* games (no leakage)
         roll_cols = [c for c in gl.columns if c.endswith(f"_roll{w}_mean")]
