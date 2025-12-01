@@ -23,12 +23,17 @@ from modeling.inference import load_latest_model, predict_next_game_for_player
 
 def main(as_of_date: str | None = None) -> None:
     cfg = default_experiment_config()
-    engine = create_engine(os.environ["DATABASE_URL"])
+    database_url = os.environ["DATABASE_URL"]
+    # Remove Prisma-specific schema parameter (not valid for psycopg2)
+    if "?schema=" in database_url:
+        database_url = database_url.split("?")[0]
+    engine = create_engine(database_url)
 
     # Load model once
     _ = load_latest_model(cfg)
 
-    as_of = datetime.fromisoformat(as_of_date) if as_of_date else datetime.utcnow()
+    from datetime import timezone
+    as_of = datetime.fromisoformat(as_of_date) if as_of_date else datetime.now(timezone.utc)
     season = cfg.data.seasons[-1] if cfg.data.seasons else "20252026"
     model_version = cfg.model.name
 
