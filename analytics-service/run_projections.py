@@ -37,16 +37,34 @@ def main(as_of_date: str | None = None) -> None:
     season = cfg.data.seasons[-1] if cfg.data.seasons else "20252026"
     model_version = cfg.model.name
 
+    # Only process players who have game logs (need history for features)
     players_df = pd.read_sql_query(
-        text('SELECT id AS "playerId" FROM "Player" WHERE "isActive" = true'),
+        text("""
+            SELECT DISTINCT p.id AS "playerId"
+            FROM "Player" p
+            INNER JOIN "GameLog" gl ON gl."playerId" = p.id
+            WHERE p."isActive" = true
+            GROUP BY p.id
+            HAVING COUNT(*) >= 5  -- At least 5 games for meaningful features
+        """),
         engine,
     )
 
-    for _, row in players_df.iterrows():
+    print(f"Processing {len(players_df)} players with sufficient game history...")
+    success_count = 0
+    error_count = 0
+
+    for idx, row in players_df.iterrows():
         player_id = int(row["playerId"])
         try:
             preds = predict_next_game_for_player(player_id, as_of, cfg)
-        except Exception:
+            if not preds:
+                error_count += 1
+                continue
+        except Exception as e:
+            error_count += 1
+            if error_count <= 10:  # Log first 10 errors for debugging
+                print(f"Error predicting for player {player_id}: {e}")
             continue
 
         stmt = text(
@@ -118,6 +136,11 @@ def main(as_of_date: str | None = None) -> None:
 
         with engine.begin() as conn:
             conn.execute(stmt, params)
+            success_count += 1
+            if success_count % 50 == 0:
+                print(f"Processed {success_count} players...")
+
+    print(f"\n✅ Completed: {success_count} successful, {error_count} failed")
 
 
 if __name__ == "__main__":
