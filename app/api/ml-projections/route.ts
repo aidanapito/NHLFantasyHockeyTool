@@ -91,8 +91,8 @@ export async function GET(request: NextRequest) {
         const gamesPlayed = stats?.gamesPlayed || 0;
         const gamesRemaining = Math.max(0, SEASON_LENGTH - gamesPlayed);
 
-        // Per-game projections (from model)
-        const perGame = {
+        // Model's per-game predictions
+        const modelPerGame = {
           goals: proj.predictedGoals || 0,
           assists: proj.predictedAssists || 0,
           points: proj.predictedPoints || 0,
@@ -111,7 +111,53 @@ export async function GET(request: NextRequest) {
           shutouts: proj.predictedShutouts || 0,
         };
 
-        // Season projections = current stats + (per-game * games remaining)
+        // Current pace (per-game rates from actual stats)
+        const currentPace = gamesPlayed > 0 ? {
+          goals: (stats?.goals || 0) / gamesPlayed,
+          assists: (stats?.assists || 0) / gamesPlayed,
+          points: (stats?.points || 0) / gamesPlayed,
+          shots: (stats?.shotsOnGoal || 0) / gamesPlayed,
+          shotsOnGoal: (stats?.shotsOnGoal || 0) / gamesPlayed,
+          hits: (stats?.hits || 0) / gamesPlayed,
+          blocks: (stats?.blockedShots || 0) / gamesPlayed,
+          powerPlayPoints: (stats?.powerPlayPoints || 0) / gamesPlayed,
+          plusMinus: (stats?.plusMinus || 0) / gamesPlayed,
+          pim: (stats?.pim || 0) / gamesPlayed,
+          wins: (stats?.wins || 0) / gamesPlayed,
+          saves: (stats?.saves || 0) / gamesPlayed,
+          shotsAgainst: (stats?.shotsAgainst || 0) / gamesPlayed,
+          goalsAgainst: (stats?.goalsAgainst || 0) / gamesPlayed,
+          shutouts: (stats?.shutouts || 0) / gamesPlayed,
+        } : modelPerGame;
+
+        // Blend current pace with model prediction
+        // More games played = more weight on current pace (less regression)
+        // Formula: weight = min(0.7, gamesPlayed / 30) - caps at 70% current pace
+        // This means: 0 games = 0% current, 30+ games = 70% current, 30% model
+        const currentPaceWeight = Math.min(0.7, gamesPlayed / 30);
+        const modelWeight = 1 - currentPaceWeight;
+
+        // Blended per-game projection
+        const perGame = {
+          goals: (currentPace.goals * currentPaceWeight) + (modelPerGame.goals * modelWeight),
+          assists: (currentPace.assists * currentPaceWeight) + (modelPerGame.assists * modelWeight),
+          points: (currentPace.points * currentPaceWeight) + (modelPerGame.points * modelWeight),
+          shots: (currentPace.shots * currentPaceWeight) + (modelPerGame.shots * modelWeight),
+          shotsOnGoal: (currentPace.shotsOnGoal * currentPaceWeight) + (modelPerGame.shotsOnGoal * modelWeight),
+          hits: (currentPace.hits * currentPaceWeight) + (modelPerGame.hits * modelWeight),
+          blocks: (currentPace.blocks * currentPaceWeight) + (modelPerGame.blocks * modelWeight),
+          powerPlayPoints: (currentPace.powerPlayPoints * currentPaceWeight) + (modelPerGame.powerPlayPoints * modelWeight),
+          plusMinus: (currentPace.plusMinus * currentPaceWeight) + (modelPerGame.plusMinus * modelWeight),
+          pim: (currentPace.pim * currentPaceWeight) + (modelPerGame.pim * modelWeight),
+          toiSeconds: (currentPace.toiSeconds || modelPerGame.toiSeconds) * currentPaceWeight + (modelPerGame.toiSeconds * modelWeight),
+          wins: (currentPace.wins * currentPaceWeight) + (modelPerGame.wins * modelWeight),
+          saves: ((currentPace.saves || 0) * currentPaceWeight) + (modelPerGame.saves * modelWeight),
+          shotsAgainst: ((currentPace.shotsAgainst || 0) * currentPaceWeight) + (modelPerGame.shotsAgainst * modelWeight),
+          goalsAgainst: ((currentPace.goalsAgainst || 0) * currentPaceWeight) + (modelPerGame.goalsAgainst * modelWeight),
+          shutouts: (currentPace.shutouts * currentPaceWeight) + (modelPerGame.shutouts * modelWeight),
+        };
+
+        // Season projections = current stats + (blended per-game * games remaining)
         const seasonProjection = {
           goals: (stats?.goals || 0) + (perGame.goals * gamesRemaining),
           assists: (stats?.assists || 0) + (perGame.assists * gamesRemaining),
