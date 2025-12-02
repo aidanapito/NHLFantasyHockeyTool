@@ -4,13 +4,33 @@ import { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import StatsDisplay from '@/components/StatsDisplay';
 import TeamInfo from '@/components/TeamInfo';
+import ProjectionsDisplay from '@/components/ProjectionsDisplay';
 import Header from '@/components/Header';
+import Tabs from '@/components/Tabs';
 
 function HomePageContent() {
   const searchParams = useSearchParams();
   const tabParam = searchParams?.get('tab') || 'stats';
 
-  const activeTab = tabParam === 'team-info' ? 'team-info' : 'stats';
+  const tabs = [
+    {
+      id: 'stats',
+      label: 'Player Stats',
+      content: <StatsDisplay />,
+    },
+    {
+      id: 'projections',
+      label: 'ML Projections',
+      content: <ProjectionsDisplay />,
+    },
+    {
+      id: 'team-info',
+      label: 'Team Info',
+      content: <TeamInfo />,
+    },
+  ];
+
+  const activeTabId = tabParam === 'team-info' ? 'team-info' : tabParam === 'projections' ? 'projections' : 'stats';
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -20,7 +40,7 @@ function HomePageContent() {
           NHL Fantasy Hockey Analyzer
         </h1>
 
-        {activeTab === 'team-info' ? <TeamInfo /> : <StatsDisplay />}
+        <Tabs tabs={tabs} defaultTab={activeTabId} currentTab={activeTabId} />
       </div>
     </div>
   );

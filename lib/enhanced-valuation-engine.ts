@@ -108,22 +108,22 @@ export function calculatePPV(
     return projection.espnProjectedValue
   }
 
-  // If we have projected stats, calculate fantasy value
+  // If we have projected stats from the deep learning model, use them directly
   if (projection.projectedPoints !== undefined && projection.projectedPoints > 0) {
-    // Estimate other stats from projected points
-    const estimatedStats: Partial<PlayerStats> = {
-      goals: Math.round(projection.projectedPoints * 0.4),
-      assists: Math.round(projection.projectedPoints * 0.6),
-      points: projection.projectedPoints,
-      shotsOnGoal: Math.round(projection.projectedPoints * 3),
-      hits: Math.round(projection.projectedPoints * 1.5),
-      blocks: Math.round(projection.projectedPoints * 0.5),
-      powerPlayPoints: Math.round(projection.projectedPoints * 0.25),
-      plusMinus: 0,
-      pim: 20,
+    // Use actual projected stats from the model (per-game rates, scale to season)
+    const projectedStats: Partial<PlayerStats> = {
+      goals: projection.projectedGoals ? Math.round(projection.projectedGoals * 82) : 0,
+      assists: projection.projectedAssists ? Math.round(projection.projectedAssists * 82) : 0,
+      points: Math.round(projection.projectedPoints * 82),
+      shotsOnGoal: projection.projectedShotsOnGoal ? Math.round(projection.projectedShotsOnGoal * 82) : 0,
+      hits: projection.projectedHits ? Math.round(projection.projectedHits * 82) : 0,
+      blockedShots: projection.projectedBlocks ? Math.round(projection.projectedBlocks * 82) : 0,
+      powerPlayPoints: projection.projectedPowerPlayPoints ? Math.round(projection.projectedPowerPlayPoints * 82) : 0,
+      plusMinus: projection.projectedPlusMinus ? Math.round(projection.projectedPlusMinus * 82) : 0,
+      pim: projection.projectedPim ? Math.round(projection.projectedPim * 82) : 0,
       gamesPlayed: 82,
     }
-    return calculateFantasyValue(estimatedStats)
+    return calculateFantasyValue(projectedStats)
   }
 
   // If we have historical stats, project based on trends

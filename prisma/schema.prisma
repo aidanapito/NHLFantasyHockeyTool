@@ -30,6 +30,7 @@ model Player {
   fantasyRoster FantasyRoster[]
   gameLogs      GameLog[]
   stats         PlayerStats[]
+  projections   PlayerProjection[]
 
   @@index([nhlId])
   @@index([fullName])

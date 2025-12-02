@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
 export type Tab = {
   id: string;
@@ -11,10 +12,31 @@ export type Tab = {
 interface TabsProps {
   tabs: Tab[];
   defaultTab?: string;
+  currentTab?: string;
+  onTabChange?: (tabId: string) => void;
 }
 
-export default function Tabs({ tabs, defaultTab }: TabsProps) {
-  const [activeTab, setActiveTab] = useState(defaultTab || tabs[0]?.id);
+export default function Tabs({ tabs, defaultTab, currentTab, onTabChange }: TabsProps) {
+  const router = useRouter();
+  const [activeTab, setActiveTab] = useState(currentTab || defaultTab || tabs[0]?.id);
+
+  useEffect(() => {
+    if (currentTab && currentTab !== activeTab) {
+      setActiveTab(currentTab);
+    }
+  }, [currentTab]);
+
+  const handleTabChange = (tabId: string) => {
+    setActiveTab(tabId);
+    if (onTabChange) {
+      onTabChange(tabId);
+    } else {
+      // Default behavior: update URL
+      const params = new URLSearchParams(window.location.search);
+      params.set('tab', tabId);
+      router.push(`?${params.toString()}`);
+    }
+  };
 
   const activeTabContent = tabs.find(tab => tab.id === activeTab)?.content;
 
@@ -26,7 +48,7 @@ export default function Tabs({ tabs, defaultTab }: TabsProps) {
           {tabs.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => handleTabChange(tab.id)}
               className={`
                 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors
                 ${

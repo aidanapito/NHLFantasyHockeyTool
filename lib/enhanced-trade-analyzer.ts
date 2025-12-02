@@ -269,6 +269,29 @@ export async function analyzeEnhancedTrade(
     dbPlayers.map(dbPlayer => [dbPlayer.nhlId.toString(), dbPlayer.stats[0]])
   )
 
+  // Fetch projections for all players (get latest projection per player)
+  const dbPlayerIds = dbPlayers.map(p => p.id)
+  const projections = await prisma.playerProjection.findMany({
+    where: {
+      playerId: { in: dbPlayerIds },
+      modelVersion: 'player_perf_v1', // Use the trained model version
+    },
+    orderBy: {
+      gameDate: 'desc', // Get most recent projection
+    },
+    distinct: ['playerId'], // One per player
+  })
+
+  // Map projections by player database ID
+  const projectionMap = new Map(
+    projections.map(proj => [proj.playerId, proj])
+  )
+
+  // Map player NHL IDs to database IDs for projection lookup
+  const nhlIdToDbIdMap = new Map(
+    dbPlayers.map(p => [p.nhlId.toString(), p.id])
+  )
+
   // For z-score context, use players in the trade
   const allPlayersForContext = [...sideA, ...sideB]
 
@@ -276,7 +299,29 @@ export async function analyzeEnhancedTrade(
   const enhancedValuesA: EnhancedPlayerValue[] = await Promise.all(
     sideA.map(async (player) => {
       const stats = playerStatsMap.get(player.id)
-      const projection: any = {} // Would fetch from ESPN or projections table
+      const dbId = nhlIdToDbIdMap.get(player.id)
+      const dbProjection = dbId ? projectionMap.get(dbId) : null
+      
+      // Convert database projection to PlayerProjection type
+      const projection: any = dbProjection ? {
+        projectedPoints: dbProjection.predictedPoints,
+        projectedGoals: dbProjection.predictedGoals,
+        projectedAssists: dbProjection.predictedAssists,
+        projectedShots: dbProjection.predictedShots,
+        projectedShotsOnGoal: dbProjection.predictedShotsOnGoal,
+        projectedHits: dbProjection.predictedHits,
+        projectedBlocks: dbProjection.predictedBlocks,
+        projectedPowerPlayPoints: dbProjection.predictedPowerPlayPoints,
+        projectedPlusMinus: dbProjection.predictedPlusMinus,
+        projectedPim: dbProjection.predictedPim,
+        projectedToiSeconds: dbProjection.predictedToiSeconds,
+        projectedWins: dbProjection.predictedWins,
+        projectedSaves: dbProjection.predictedSaves,
+        projectedShotsAgainst: dbProjection.predictedShotsAgainst,
+        projectedGoalsAgainst: dbProjection.predictedGoalsAgainst,
+        projectedSavePct: dbProjection.predictedSavePct,
+        projectedShutouts: dbProjection.predictedShutouts,
+      } : {}
 
       return calculateEnhancedPlayerValue(
         player,
@@ -290,7 +335,29 @@ export async function analyzeEnhancedTrade(
   const enhancedValuesB: EnhancedPlayerValue[] = await Promise.all(
     sideB.map(async (player) => {
       const stats = playerStatsMap.get(player.id)
-      const projection: any = {}
+      const dbId = nhlIdToDbIdMap.get(player.id)
+      const dbProjection = dbId ? projectionMap.get(dbId) : null
+      
+      // Convert database projection to PlayerProjection type
+      const projection: any = dbProjection ? {
+        projectedPoints: dbProjection.predictedPoints,
+        projectedGoals: dbProjection.predictedGoals,
+        projectedAssists: dbProjection.predictedAssists,
+        projectedShots: dbProjection.predictedShots,
+        projectedShotsOnGoal: dbProjection.predictedShotsOnGoal,
+        projectedHits: dbProjection.predictedHits,
+        projectedBlocks: dbProjection.predictedBlocks,
+        projectedPowerPlayPoints: dbProjection.predictedPowerPlayPoints,
+        projectedPlusMinus: dbProjection.predictedPlusMinus,
+        projectedPim: dbProjection.predictedPim,
+        projectedToiSeconds: dbProjection.predictedToiSeconds,
+        projectedWins: dbProjection.predictedWins,
+        projectedSaves: dbProjection.predictedSaves,
+        projectedShotsAgainst: dbProjection.predictedShotsAgainst,
+        projectedGoalsAgainst: dbProjection.predictedGoalsAgainst,
+        projectedSavePct: dbProjection.predictedSavePct,
+        projectedShutouts: dbProjection.predictedShutouts,
+      } : {}
 
       return calculateEnhancedPlayerValue(
         player,
