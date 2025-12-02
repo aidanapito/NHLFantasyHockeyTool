@@ -87,7 +87,9 @@ interface ProjectionsData {
   projections: PlayerProjection[];
 }
 
-type SortField = 'name' | 'position' | 'team' | 'seasonPoints' | 'seasonGoals' | 'seasonAssists' | 'perGamePoints' | 'perGameGoals' | 'perGameAssists';
+type SortField = 'name' | 'position' | 'team' | 'gamesPlayed' | 'currentPoints' | 
+  'seasonPoints' | 'seasonGoals' | 'seasonAssists' | 'seasonSOG' | 'seasonHits' | 'seasonBlocks' | 'seasonPPP' |
+  'perGamePoints' | 'perGameGoals' | 'perGameAssists' | 'perGameSOG' | 'perGameHits' | 'perGameBlocks' | 'perGameTOI' | 'perGamePPP';
 type SortDirection = 'asc' | 'desc';
 type ViewMode = 'per-game' | 'season';
 
@@ -160,6 +162,14 @@ export default function ProjectionsDisplay() {
           aVal = a.player.team || '';
           bVal = b.player.team || '';
           break;
+        case 'gamesPlayed':
+          aVal = a.projection.current.gamesPlayed || 0;
+          bVal = b.projection.current.gamesPlayed || 0;
+          break;
+        case 'currentPoints':
+          aVal = a.projection.current.points || 0;
+          bVal = b.projection.current.points || 0;
+          break;
         case 'seasonPoints':
           aVal = a.projection.seasonProjection.points || 0;
           bVal = b.projection.seasonProjection.points || 0;
@@ -172,6 +182,22 @@ export default function ProjectionsDisplay() {
           aVal = a.projection.seasonProjection.assists || 0;
           bVal = b.projection.seasonProjection.assists || 0;
           break;
+        case 'seasonSOG':
+          aVal = a.projection.seasonProjection.shotsOnGoal || 0;
+          bVal = b.projection.seasonProjection.shotsOnGoal || 0;
+          break;
+        case 'seasonHits':
+          aVal = a.projection.seasonProjection.hits || 0;
+          bVal = b.projection.seasonProjection.hits || 0;
+          break;
+        case 'seasonBlocks':
+          aVal = a.projection.seasonProjection.blocks || 0;
+          bVal = b.projection.seasonProjection.blocks || 0;
+          break;
+        case 'seasonPPP':
+          aVal = a.projection.seasonProjection.powerPlayPoints || 0;
+          bVal = b.projection.seasonProjection.powerPlayPoints || 0;
+          break;
         case 'perGamePoints':
           aVal = a.projection.perGame.points || 0;
           bVal = b.projection.perGame.points || 0;
@@ -183,6 +209,26 @@ export default function ProjectionsDisplay() {
         case 'perGameAssists':
           aVal = a.projection.perGame.assists || 0;
           bVal = b.projection.perGame.assists || 0;
+          break;
+        case 'perGameSOG':
+          aVal = a.projection.perGame.shotsOnGoal || 0;
+          bVal = b.projection.perGame.shotsOnGoal || 0;
+          break;
+        case 'perGameHits':
+          aVal = a.projection.perGame.hits || 0;
+          bVal = b.projection.perGame.hits || 0;
+          break;
+        case 'perGameBlocks':
+          aVal = a.projection.perGame.blocks || 0;
+          bVal = b.projection.perGame.blocks || 0;
+          break;
+        case 'perGameTOI':
+          aVal = a.projection.perGame.toiSeconds || 0;
+          bVal = b.projection.perGame.toiSeconds || 0;
+          break;
+        case 'perGamePPP':
+          aVal = a.projection.perGame.powerPlayPoints || 0;
+          bVal = b.projection.perGame.powerPlayPoints || 0;
           break;
         default:
           return 0;
@@ -313,11 +359,17 @@ export default function ProjectionsDisplay() {
                 </th>
                 {viewMode === 'season' && (
                   <>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      GP
+                    <th
+                      onClick={() => handleSort('gamesPlayed')}
+                      className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                    >
+                      GP {sortField === 'gamesPlayed' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Current
+                    <th
+                      onClick={() => handleSort('currentPoints')}
+                      className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                    >
+                      Current {sortField === 'currentPoints' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </th>
                   </>
                 )}
@@ -339,22 +391,37 @@ export default function ProjectionsDisplay() {
                 >
                   {viewMode === 'season' ? 'Season A' : 'A/G'} {sortField.includes('Assists') && (sortDirection === 'asc' ? '↑' : '↓')}
                 </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  {viewMode === 'season' ? 'Season SOG' : 'SOG/G'}
+                <th
+                  onClick={() => handleSort(viewMode === 'season' ? 'seasonSOG' : 'perGameSOG')}
+                  className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                >
+                  {viewMode === 'season' ? 'Season SOG' : 'SOG/G'} {(sortField === 'seasonSOG' || sortField === 'perGameSOG') && (sortDirection === 'asc' ? '↑' : '↓')}
                 </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  {viewMode === 'season' ? 'Season HIT' : 'HIT/G'}
+                <th
+                  onClick={() => handleSort(viewMode === 'season' ? 'seasonHits' : 'perGameHits')}
+                  className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                >
+                  {viewMode === 'season' ? 'Season HIT' : 'HIT/G'} {(sortField === 'seasonHits' || sortField === 'perGameHits') && (sortDirection === 'asc' ? '↑' : '↓')}
                 </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  {viewMode === 'season' ? 'Season BLK' : 'BLK/G'}
+                <th
+                  onClick={() => handleSort(viewMode === 'season' ? 'seasonBlocks' : 'perGameBlocks')}
+                  className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                >
+                  {viewMode === 'season' ? 'Season BLK' : 'BLK/G'} {(sortField === 'seasonBlocks' || sortField === 'perGameBlocks') && (sortDirection === 'asc' ? '↑' : '↓')}
                 </th>
                 {viewMode === 'per-game' && (
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    TOI/G
+                  <th
+                    onClick={() => handleSort('perGameTOI')}
+                    className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  >
+                    TOI/G {sortField === 'perGameTOI' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                 )}
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  {viewMode === 'season' ? 'Season PPP' : 'PPP/G'}
+                <th
+                  onClick={() => handleSort(viewMode === 'season' ? 'seasonPPP' : 'perGamePPP')}
+                  className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                >
+                  {viewMode === 'season' ? 'Season PPP' : 'PPP/G'} {(sortField === 'seasonPPP' || sortField === 'perGamePPP') && (sortDirection === 'asc' ? '↑' : '↓')}
                 </th>
               </tr>
             </thead>
