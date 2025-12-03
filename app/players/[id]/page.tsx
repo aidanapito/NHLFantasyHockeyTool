@@ -228,7 +228,7 @@ export default function PlayerDetailPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 players-detail-page">
       <Header />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Back button */}
@@ -275,16 +275,16 @@ export default function PlayerDetailPage() {
               {currentStats && (
                 <div className="grid grid-cols-3 gap-4 mt-4">
                   <div>
-                    <div className="text-sm text-gray-500">Games Played</div>
-                    <div className="text-2xl font-bold">{currentStats.gamesPlayed}</div>
+                    <div className="text-sm text-gray-500" style={{ color: '#6b7280' }}>Games Played</div>
+                    <div className="text-2xl font-bold" style={{ color: '#111827' }}>{currentStats.gamesPlayed}</div>
                   </div>
                   <div>
-                    <div className="text-sm text-gray-500">Points</div>
-                    <div className="text-2xl font-bold">{currentStats.points}</div>
+                    <div className="text-sm text-gray-500" style={{ color: '#6b7280' }}>Points</div>
+                    <div className="text-2xl font-bold" style={{ color: '#111827' }}>{currentStats.points}</div>
                   </div>
                   <div>
-                    <div className="text-sm text-gray-500">Points/Game</div>
-                    <div className="text-2xl font-bold">
+                    <div className="text-sm text-gray-500" style={{ color: '#6b7280' }}>Points/Game</div>
+                    <div className="text-2xl font-bold" style={{ color: '#111827' }}>
                       {perGameStats ? perGameStats.points.toFixed(2) : '0.00'}
                     </div>
                   </div>
@@ -356,13 +356,13 @@ export default function PlayerDetailPage() {
 
                       return (
                         <tr key={field.key}>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900" style={{ color: '#111827' }}>
                             {field.label}
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900" style={{ color: '#111827' }}>
                             {current !== null ? current.toFixed(2) : 'N/A'}
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900" style={{ color: '#111827' }}>
                             {projected !== null ? projected.toFixed(2) : 'N/A'}
                           </td>
                           <td className={`px-6 py-4 whitespace-nowrap text-sm text-right ${
@@ -422,22 +422,22 @@ export default function PlayerDetailPage() {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {gameLogs.slice(0, 10).map((log, idx) => (
                     <tr key={idx}>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900" style={{ color: '#111827' }}>
                         {new Date(log.gameDate).toLocaleDateString()}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900" style={{ color: '#111827' }}>
                         {log.isHome ? 'vs' : '@'} {log.opponentTeam}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-center text-gray-900">
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-center text-gray-900" style={{ color: '#111827' }}>
                         {log.goals}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-center text-gray-900">
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-center text-gray-900" style={{ color: '#111827' }}>
                         {log.assists}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-center font-semibold text-gray-900">
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-center font-semibold text-gray-900" style={{ color: '#111827' }}>
                         {log.points}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-center text-gray-900">
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-center text-gray-900" style={{ color: '#111827' }}>
                         {log.shotsOnGoal}
                       </td>
                       <td className={`px-4 py-3 whitespace-nowrap text-sm text-center ${

@@ -25,3 +25,18 @@ table a {
 table a:hover {
   color: #1e40af !important;
 }
+
+/* Force text color in player detail pages to be dark */
+.players-detail-page td,
+.players-detail-page th,
+.players-detail-page .text-gray-900 {
+  color: #111827 !important;
+}
+
+.players-detail-page .text-gray-600 {
+  color: #4b5563 !important;
+}
+
+.players-detail-page .text-gray-500 {
+  color: #6b7280 !important;
+}
