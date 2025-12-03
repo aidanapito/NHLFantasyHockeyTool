@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Filter, X } from 'lucide-react';
 import { calculateSkaterZScore, calculateGoalieZScore } from '@/lib/z-score-calculator';
 import { calculateTPV } from '@/lib/enhanced-valuation-engine';
@@ -955,13 +956,14 @@ export default function StatsDisplay() {
             <tbody className="divide-y divide-gray-200 bg-white" key={`skaters-${debouncedSearchQuery}-${statsType}`}>
               {getFilteredPlayers.map((player: any, index) => (
                 <tr key={player.playerId} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                  <td className="whitespace-nowrap py-3 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-6 sticky left-0 bg-inherit z-10">
-                    <button
-                      onClick={() => router.push(`/players/${player.playerId}`)}
-                      className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                  <td className="whitespace-nowrap py-3 pl-4 pr-3 text-sm sm:pl-6 sticky left-0 bg-inherit z-10">
+                    <Link
+                      href={`/players/${player.playerId}`}
+                      className="font-medium hover:underline cursor-pointer"
+                      style={{ color: '#2563eb' }}
                     >
                       {player.name}
-                    </button>
+                    </Link>
                   </td>
                   <td className="whitespace-nowrap px-2 py-3 text-xs text-right bg-blue-50">
                     <span className={`font-semibold ${(player.zScore || 0) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
@@ -1185,13 +1187,14 @@ export default function StatsDisplay() {
                 return sorted.slice(startIndex, endIndex);
               })().map((goalie: any, index: number) => (
                 <tr key={goalie.playerId} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                  <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-6">
-                    <button
-                      onClick={() => router.push(`/players/${goalie.playerId}`)}
-                      className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                  <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm sm:pl-6">
+                    <Link
+                      href={`/players/${goalie.playerId}`}
+                      className="font-medium hover:underline cursor-pointer"
+                      style={{ color: '#2563eb' }}
                     >
                       {goalie.name}
-                    </button>
+                    </Link>
                   </td>
                   <td className="whitespace-nowrap px-3 py-4 text-sm text-right bg-blue-50">
                     <span className={`font-semibold ${(goalie.zScore || 0) >= 0 ? 'text-green-700' : 'text-red-600'}`}>

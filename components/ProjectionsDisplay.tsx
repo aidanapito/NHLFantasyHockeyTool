@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 
 interface PerGameProjection {
@@ -442,12 +443,13 @@ export default function ProjectionsDisplay() {
                   return (
                     <tr key={item.player.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <button
-                          onClick={() => router.push(`/players/${item.player.id}`)}
-                          className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                        <Link
+                          href={`/players/${item.player.id}`}
+                          className="text-sm font-medium hover:underline cursor-pointer"
+                          style={{ color: '#2563eb' }}
                         >
                           {item.player.fullName}
-                        </button>
+                        </Link>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-sm text-gray-900">{item.player.position}</span>

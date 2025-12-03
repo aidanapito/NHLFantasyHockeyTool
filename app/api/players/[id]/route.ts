@@ -15,16 +15,24 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const playerId = parseInt(params.id);
+    const idParam = parseInt(params.id);
     const { searchParams } = new URL(request.url);
     const season = searchParams.get('season') || '20252026';
     const modelVersion = searchParams.get('modelVersion') || 'player_perf_v1';
     const gameLogsLimit = parseInt(searchParams.get('gameLogsLimit') || '30');
 
-    // Fetch player
-    const player = await prisma.player.findUnique({
-      where: { id: playerId },
+    // Try to find player by database ID first, then by NHL ID
+    // This handles both cases since StatsDisplay uses NHL ID but we want to support both
+    let player = await prisma.player.findUnique({
+      where: { id: idParam },
     });
+
+    // If not found by database ID, try NHL ID
+    if (!player) {
+      player = await prisma.player.findUnique({
+        where: { nhlId: idParam },
+      });
+    }
 
     if (!player) {
       return NextResponse.json(
