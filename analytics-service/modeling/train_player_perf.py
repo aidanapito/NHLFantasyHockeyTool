@@ -28,6 +28,7 @@ from .config import (
 )
 from .data_extraction import load_base_dataset
 from .dataset import Encoders, PlayerGameDataset, fit_encoders
+from .evaluation import evaluate_model
 from .features import build_feature_tables
 from .models import TabularModelConfig, TabularMultiTaskModel
 
@@ -183,6 +184,30 @@ def train(cfg: ExperimentConfig | None = None) -> None:
             if patience_counter >= cfg.training.early_stopping_patience:
                 print("Early stopping triggered")
                 break
+
+    # Load best model for evaluation
+    print("\nLoading best model for evaluation...")
+    paths = artifact_paths(cfg.model.name)
+    model.load_state_dict(torch.load(paths["model_state"], map_location=device, weights_only=False))
+
+    # Run comprehensive evaluation on test set
+    print("\n" + "="*60)
+    print("Running evaluation on test set...")
+    print("="*60)
+    test_loader = DataLoader(
+        test_ds,
+        batch_size=cfg.training.batch_size,
+        shuffle=False,
+        num_workers=cfg.training.num_workers,
+    )
+    
+    evaluate_model(
+        model=model,
+        dataloader=test_loader,
+        device=device,
+        stat_names=ALL_TARGET_STATS,
+        model_name=cfg.model.name,
+    )
 
 
 if __name__ == "__main__":
