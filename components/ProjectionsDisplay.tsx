@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 
 interface PerGameProjection {
@@ -94,6 +95,7 @@ type SortDirection = 'asc' | 'desc';
 type ViewMode = 'per-game' | 'season';
 
 export default function ProjectionsDisplay() {
+  const router = useRouter();
   const [data, setData] = useState<ProjectionsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -440,9 +442,12 @@ export default function ProjectionsDisplay() {
                   return (
                     <tr key={item.player.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">
+                        <button
+                          onClick={() => router.push(`/players/${item.player.id}`)}
+                          className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                        >
                           {item.player.fullName}
-                        </div>
+                        </button>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-sm text-gray-900">{item.player.position}</span>
