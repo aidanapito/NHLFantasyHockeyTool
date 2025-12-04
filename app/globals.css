@@ -40,3 +40,15 @@ table a:hover {
 .players-detail-page .text-gray-500 {
   color: #6b7280 !important;
 }
+
+/* Force input and select text to be dark */
+input[type="text"],
+input[type="search"],
+select,
+textarea {
+  color: #111827 !important;
+}
+
+input::placeholder {
+  color: #9ca3af !important;
+}

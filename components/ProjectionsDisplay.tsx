@@ -297,13 +297,15 @@ export default function ProjectionsDisplay() {
             placeholder="Search players or teams..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+            style={{ color: '#111827' }}
           />
         </div>
         <select
           value={positionFilter}
           onChange={(e) => setPositionFilter(e.target.value)}
-          className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+          style={{ color: '#111827' }}
         >
           <option value="all">All Positions</option>
           <option value="C">Centers</option>
