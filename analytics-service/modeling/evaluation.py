@@ -4,7 +4,11 @@ Comprehensive evaluation and diagnostics for player performance models.
 This module provides:
 - Per-stat metrics (MAE, RMSE, R²)
 - Breakdowns by position, team, home/away
-- Diagnostic plots (residuals, calibration, prediction vs actual)
+- Diagnostic plots:
+  * Residual plots (identify systematic biases)
+  * Prediction vs actual scatter plots
+  * Calibration curves (mean predicted vs mean actual by bins)
+  * Error by prediction range (identify where model performs well/poorly)
 - Evaluation reports saved to disk
 """
 
@@ -309,6 +313,229 @@ def plot_metrics_by_position(
     plt.close()
 
 
+def plot_calibration_curves(
+    predictions: np.ndarray,
+    targets: np.ndarray,
+    stat_names: List[str],
+    output_path: Path,
+    n_bins: int = 10,
+    max_stats: int = 12,
+) -> None:
+    """
+    Generate calibration curves for regression.
+    
+    For each stat, bins predictions and plots:
+    - Mean predicted value vs mean actual value in each bin
+    - Perfect calibration line (y=x)
+    - Helps identify systematic over/under-prediction
+    
+    Args:
+        predictions: (n_samples, n_targets) array
+        targets: (n_samples, n_targets) array
+        stat_names: List of stat names
+        output_path: Where to save the plot
+        n_bins: Number of bins for calibration
+        max_stats: Maximum number of stats to plot
+    """
+    n_stats = min(len(stat_names), max_stats)
+    n_cols = 4
+    n_rows = (n_stats + n_cols - 1) // n_cols
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(16, 4 * n_rows))
+    axes = axes.flatten() if n_stats > 1 else [axes]
+
+    for i, stat in enumerate(stat_names[:max_stats]):
+        ax = axes[i]
+        pred = predictions[:, i]
+        actual = targets[:, i]
+
+        # Remove NaN/inf
+        mask = np.isfinite(pred) & np.isfinite(actual)
+        pred_clean = pred[mask]
+        actual_clean = actual[mask]
+
+        if len(pred_clean) == 0:
+            ax.text(0.5, 0.5, "No valid data", ha="center", va="center", transform=ax.transAxes)
+            ax.set_title(f"Calibration: {stat}")
+            continue
+
+        # Create bins based on predicted values
+        # Use quantiles to ensure roughly equal samples per bin
+        try:
+            bin_edges = np.quantile(pred_clean, np.linspace(0, 1, n_bins + 1))
+            bin_edges[0] = bin_edges[0] - 1e-6  # Ensure all points are included
+            bin_edges[-1] = bin_edges[-1] + 1e-6
+            bin_indices = np.digitize(pred_clean, bin_edges) - 1
+            bin_indices = np.clip(bin_indices, 0, n_bins - 1)
+        except Exception:
+            # Fallback to equal-width bins if quantiles fail
+            bin_edges = np.linspace(pred_clean.min(), pred_clean.max(), n_bins + 1)
+            bin_indices = np.digitize(pred_clean, bin_edges) - 1
+            bin_indices = np.clip(bin_indices, 0, n_bins - 1)
+
+        # Compute mean predicted and mean actual for each bin
+        bin_centers = []
+        mean_predicted = []
+        mean_actual = []
+        std_actual = []
+        n_per_bin = []
+
+        for bin_idx in range(n_bins):
+            bin_mask = bin_indices == bin_idx
+            if bin_mask.sum() == 0:
+                continue
+
+            bin_pred = pred_clean[bin_mask]
+            bin_act = actual_clean[bin_mask]
+
+            bin_centers.append(np.mean(bin_pred))
+            mean_predicted.append(np.mean(bin_pred))
+            mean_actual.append(np.mean(bin_act))
+            std_actual.append(np.std(bin_act))
+            n_per_bin.append(bin_mask.sum())
+
+        if len(bin_centers) == 0:
+            ax.text(0.5, 0.5, "No valid bins", ha="center", va="center", transform=ax.transAxes)
+            ax.set_title(f"Calibration: {stat}")
+            continue
+
+        bin_centers = np.array(bin_centers)
+        mean_predicted = np.array(mean_predicted)
+        mean_actual = np.array(mean_actual)
+        std_actual = np.array(std_actual)
+
+        # Plot calibration curve
+        ax.scatter(mean_predicted, mean_actual, s=100, alpha=0.7, zorder=3)
+        
+        # Add error bars (1 std)
+        ax.errorbar(
+            mean_predicted, mean_actual, yerr=std_actual,
+            fmt='none', alpha=0.3, capsize=3, capthick=1, zorder=2
+        )
+
+        # Perfect calibration line
+        min_val = min(np.min(mean_predicted), np.min(mean_actual))
+        max_val = max(np.max(mean_predicted), np.max(mean_actual))
+        ax.plot([min_val, max_val], [min_val, max_val], "r--", linewidth=2, label="Perfect", zorder=1)
+
+        ax.set_xlabel("Mean Predicted")
+        ax.set_ylabel("Mean Actual")
+        ax.set_title(f"Calibration: {stat}")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+        # Add sample size annotation
+        total_samples = sum(n_per_bin)
+        ax.text(0.02, 0.98, f"n={total_samples}", transform=ax.transAxes,
+                verticalalignment='top', fontsize=8, bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+
+    # Hide unused subplots
+    for i in range(n_stats, len(axes)):
+        axes[i].set_visible(False)
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+
+
+def plot_error_by_prediction_range(
+    predictions: np.ndarray,
+    targets: np.ndarray,
+    stat_names: List[str],
+    output_path: Path,
+    n_bins: int = 10,
+    max_stats: int = 12,
+) -> None:
+    """
+    Plot error metrics (MAE, RMSE) by prediction range bins.
+    
+    Helps identify where the model performs well/poorly across different
+    prediction magnitudes (e.g., high-scoring vs low-scoring games).
+    """
+    n_stats = min(len(stat_names), max_stats)
+    n_cols = 4
+    n_rows = (n_stats + n_cols - 1) // n_cols
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(16, 4 * n_rows))
+    axes = axes.flatten() if n_stats > 1 else [axes]
+
+    for i, stat in enumerate(stat_names[:max_stats]):
+        ax = axes[i]
+        pred = predictions[:, i]
+        actual = targets[:, i]
+
+        # Remove NaN/inf
+        mask = np.isfinite(pred) & np.isfinite(actual)
+        pred_clean = pred[mask]
+        actual_clean = actual[mask]
+
+        if len(pred_clean) == 0:
+            ax.text(0.5, 0.5, "No valid data", ha="center", va="center", transform=ax.transAxes)
+            ax.set_title(f"Error by Range: {stat}")
+            continue
+
+        # Create bins based on predicted values
+        try:
+            bin_edges = np.quantile(pred_clean, np.linspace(0, 1, n_bins + 1))
+            bin_edges[0] = bin_edges[0] - 1e-6
+            bin_edges[-1] = bin_edges[-1] + 1e-6
+            bin_indices = np.digitize(pred_clean, bin_edges) - 1
+            bin_indices = np.clip(bin_indices, 0, n_bins - 1)
+        except Exception:
+            bin_edges = np.linspace(pred_clean.min(), pred_clean.max(), n_bins + 1)
+            bin_indices = np.digitize(pred_clean, bin_edges) - 1
+            bin_indices = np.clip(bin_indices, 0, n_bins - 1)
+
+        # Compute MAE and RMSE for each bin
+        bin_centers = []
+        mae_per_bin = []
+        rmse_per_bin = []
+
+        for bin_idx in range(n_bins):
+            bin_mask = bin_indices == bin_idx
+            if bin_mask.sum() == 0:
+                continue
+
+            bin_pred = pred_clean[bin_mask]
+            bin_act = actual_clean[bin_mask]
+
+            bin_centers.append(np.mean(bin_pred))
+            mae_per_bin.append(np.mean(np.abs(bin_act - bin_pred)))
+            rmse_per_bin.append(np.sqrt(np.mean((bin_act - bin_pred) ** 2)))
+
+        if len(bin_centers) == 0:
+            ax.text(0.5, 0.5, "No valid bins", ha="center", va="center", transform=ax.transAxes)
+            ax.set_title(f"Error by Range: {stat}")
+            continue
+
+        bin_centers = np.array(bin_centers)
+        mae_per_bin = np.array(mae_per_bin)
+        rmse_per_bin = np.array(rmse_per_bin)
+
+        # Plot both MAE and RMSE
+        x_pos = np.arange(len(bin_centers))
+        width = 0.35
+
+        ax.bar(x_pos - width/2, mae_per_bin, width, label="MAE", alpha=0.7)
+        ax.bar(x_pos + width/2, rmse_per_bin, width, label="RMSE", alpha=0.7)
+
+        ax.set_xlabel("Prediction Range (bin)")
+        ax.set_ylabel("Error")
+        ax.set_title(f"Error by Range: {stat}")
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels([f"{bc:.2f}" for bc in bin_centers], rotation=45, ha="right")
+        ax.legend()
+        ax.grid(True, alpha=0.3, axis="y")
+
+    # Hide unused subplots
+    for i in range(n_stats, len(axes)):
+        axes[i].set_visible(False)
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+
+
 def evaluate_model(
     model: TabularMultiTaskModel,
     dataloader: DataLoader,
@@ -357,6 +584,12 @@ def evaluate_model(
     )
     plot_prediction_vs_actual(
         predictions, targets, stat_names, output_dir / "prediction_vs_actual.png"
+    )
+    plot_calibration_curves(
+        predictions, targets, stat_names, output_dir / "calibration_curves.png"
+    )
+    plot_error_by_prediction_range(
+        predictions, targets, stat_names, output_dir / "error_by_prediction_range.png"
     )
     
     if len(position_breakdown) > 0:
