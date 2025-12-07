@@ -1,0 +1,224 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = []
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Player {
+  id            Int             @id @default(autoincrement())
+  nhlId         Int             @unique
+  firstName     String
+  lastName      String
+  fullName      String
+  position      String
+  team          String?
+  jerseyNumber  Int?
+  height        String?
+  weight        Int?
+  birthDate     DateTime?
+  birthCity     String?
+  birthCountry  String?
+  nationality   String?
+  headshot      String?
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  fantasyRoster FantasyRoster[]
+  gameLogs      GameLog[]
+  stats         PlayerStats[]
+  projections   PlayerProjection[]
+
+  @@index([nhlId])
+  @@index([fullName])
+  @@index([position])
+  @@index([team])
+}
+
+model PlayerStats {
+  id               Int      @id @default(autoincrement())
+  playerId         Int
+  season           String
+  gameType         String   @default("regular")
+  gamesPlayed      Int      @default(0)
+  goals            Int      @default(0)
+  assists          Int      @default(0)
+  points           Int      @default(0)
+  plusMinus        Int      @default(0)
+  pim              Int      @default(0)
+  shots            Int      @default(0)
+  shotsOnGoal      Int?
+  shootingPct      Float?
+  powerPlayGoals   Int      @default(0)
+  powerPlayPoints  Int      @default(0)
+  evGoals          Int      @default(0)
+  evPoints         Int      @default(0)
+  shGoals          Int      @default(0)
+  shPoints         Int      @default(0)
+  hits             Int      @default(0)
+  blockedShots     Int      @default(0)
+  takeaways        Int      @default(0)
+  giveaways        Int      @default(0)
+  totalFaceoffs    Int      @default(0)
+  faceoffsWon      Int      @default(0)
+  faceoffsLost     Int      @default(0)
+  faceoffPct       Float?
+  timeOnIce        String?
+  timeOnIcePerGame String?
+  wins             Int?
+  losses           Int?
+  otLosses         Int?
+  saves            Int?
+  shotsAgainst     Int?
+  goalsAgainst     Int?
+  savePct          Float?
+  gaa              Float?
+  shutouts         Int?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  player           Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([playerId, season, gameType])
+  @@index([season])
+  @@index([points])
+  @@index([goals])
+  @@index([assists])
+  @@index([gamesPlayed])
+}
+
+model DataRefresh {
+  id           Int      @id @default(autoincrement())
+  refreshType  String
+  status       String
+  lastRefresh  DateTime
+  recordCount  Int?
+  errorMessage String?
+  createdAt    DateTime @default(now())
+
+  @@index([refreshType])
+  @@index([lastRefresh])
+}
+
+model FantasyLeague {
+  id          String        @id @default(cuid())
+  platform    String
+  platformId  String
+  leagueName  String
+  season      String        @default("20252026")
+  scoringType String?
+  categories  String[]
+  espnCookies String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  teams       FantasyTeam[]
+
+  @@unique([platform, platformId, season])
+  @@index([platform, platformId])
+}
+
+model FantasyTeam {
+  id             String          @id @default(cuid())
+  leagueId       String
+  teamName       String
+  ownerName      String?
+  platformTeamId String
+  isMyTeam       Boolean         @default(false)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  roster         FantasyRoster[]
+  league         FantasyLeague   @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+
+  @@unique([leagueId, platformTeamId])
+  @@index([leagueId])
+}
+
+model FantasyRoster {
+  id           String      @id @default(cuid())
+  teamId       String
+  playerId     Int
+  slotPosition String
+  addedDate    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  player       Player      @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  team         FantasyTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, playerId])
+  @@index([teamId])
+  @@index([playerId])
+}
+
+model GameLog {
+  id               Int      @id @default(autoincrement())
+  playerId         Int
+  gameId           Int
+  gameDate         DateTime
+  season           String
+  gameType         String   @default("regular")
+  opponentTeam     String
+  isHome           Boolean
+  team             String
+  goals            Int      @default(0)
+  assists          Int      @default(0)
+  points           Int      @default(0)
+  shots            Int      @default(0)
+  shotsOnGoal      Int      @default(0)
+  hits             Int      @default(0)
+  blocks           Int      @default(0)
+  powerPlayPoints  Int      @default(0)
+  plusMinus        Int      @default(0)
+  pim              Int      @default(0)
+  timeOnIce        String?
+  timeOnIceSeconds Int?
+  wins             Int?
+  saves            Int?
+  shotsAgainst     Int?
+  goalsAgainst     Int?
+  savePct          Float?
+  shutouts         Int?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  player           Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([playerId, gameId])
+  @@index([gameDate])
+  @@index([season])
+  @@index([playerId, gameDate])
+  @@index([gameId])
+  @@index([team, gameDate])
+}
+
+model PlayerProjection {
+  id                 Int      @id @default(autoincrement())
+  playerId           Int
+  gameDate           DateTime
+  season             String
+  modelVersion       String
+  predictedGoals     Float?   @default(0)
+  predictedAssists   Float?   @default(0)
+  predictedPoints    Float?   @default(0)
+  predictedShots     Float?   @default(0)
+  predictedShotsOnGoal Float? @default(0)
+  predictedHits      Float?   @default(0)
+  predictedBlocks    Float?   @default(0)
+  predictedPowerPlayPoints Float? @default(0)
+  predictedPlusMinus Float?   @default(0)
+  predictedPim       Float?   @default(0)
+  predictedToiSeconds Float?  @default(0)
+  predictedWins      Float?   @default(0)
+  predictedSaves     Float?   @default(0)
+  predictedShotsAgainst Float? @default(0)
+  predictedGoalsAgainst Float? @default(0)
+  predictedSavePct   Float?   @default(0)
+  predictedShutouts  Float?   @default(0)
+  createdAt          DateTime @default(now())
+
+  player             Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([playerId, gameDate, modelVersion])
+  @@index([gameDate])
+  @@index([season])
+}
+

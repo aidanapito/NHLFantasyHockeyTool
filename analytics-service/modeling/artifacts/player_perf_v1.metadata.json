@@ -1,0 +1,1 @@
+{"model_name": "player_perf_v1", "targets": ["goals", "assists", "points", "shots", "shotsOnGoal", "hits", "blocks", "powerPlayPoints", "plusMinus", "pim", "timeOnIceSeconds", "wins", "saves", "shotsAgainst", "goalsAgainst", "savePct", "shutouts"]}

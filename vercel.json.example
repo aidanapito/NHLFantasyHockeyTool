@@ -1,0 +1,13 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/refresh-stats",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/refresh-rosters",
+      "schedule": "0 */6 * * *"
+    }
+  ]
+}
+
