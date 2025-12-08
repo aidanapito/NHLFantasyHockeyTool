@@ -11,12 +11,24 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional, Tuple
 
 import pandas as pd
 from sqlalchemy import create_engine, text
 
-from .config import DataConfig
+from .config import DataConfig, PROJECT_ROOT
+
+# Try to load .env file if python-dotenv is available
+try:
+    from dotenv import load_dotenv
+    # Load .env from project root (2 levels up from this file)
+    env_path = PROJECT_ROOT / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
+except ImportError:
+    # python-dotenv not installed, skip loading .env
+    pass
 
 
 @dataclass
