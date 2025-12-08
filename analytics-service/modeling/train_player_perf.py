@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Dict, Tuple
 
 import numpy as np
+import pandas as pd
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, random_split
@@ -33,33 +34,74 @@ from .features import build_feature_tables
 from .models import TabularModelConfig, TabularMultiTaskModel
 
 
-def train_val_test_split(
-    features, targets, val_ratio: float = 0.1, test_ratio: float = 0.1
+def train_val_test_split_time_based(
+    features, targets, game_date_col="game_date", 
+    val_end_date: str | None = None, test_ratio: float = 0.1
 ) -> Tuple:
-    n = len(features)
-    n_test = int(n * test_ratio)
-    n_val = int(n * val_ratio)
-    n_train = n - n_val - n_test
-
-    indices = np.random.permutation(n)
-    train_idx = indices[:n_train]
-    val_idx = indices[n_train : n_train + n_val]
-    test_idx = indices[n_train + n_val :]
-
-    return (
-        features.iloc[train_idx],
-        targets.iloc[train_idx],
-        features.iloc[val_idx],
-        targets.iloc[val_idx],
-        features.iloc[test_idx],
-        targets.iloc[test_idx],
-    )
+    """
+    Time-based split to avoid data leakage.
+    If val_end_date is None, uses the last (1-test_ratio) of dates as validation cutoff.
+    """
+    # Ensure we have game_date in features
+    if game_date_col not in features.columns:
+        raise ValueError(f"game_date column not found in features")
+    
+    # Sort by date
+    date_sorted_idx = features[game_date_col].sort_values().index
+    features_sorted = features.loc[date_sorted_idx].reset_index(drop=True)
+    targets_sorted = targets.loc[date_sorted_idx].reset_index(drop=True)
+    
+    n = len(features_sorted)
+    
+    # Determine validation cutoff
+    if val_end_date is None:
+        # Use 90% for train+val, 10% for test
+        test_start_idx = int(n * (1 - test_ratio))
+        # Within train+val, use 90% for train, 10% for val
+        val_start_idx = int(test_start_idx * 0.9)
+        val_end_idx = test_start_idx
+    else:
+        # Use provided date
+        val_end = pd.to_datetime(val_end_date)
+        val_date_mask = features_sorted[game_date_col] < val_end
+        if not val_date_mask.any():
+            # If no dates before val_end_date, use default split
+            test_start_idx = int(n * (1 - test_ratio))
+            val_start_idx = int(test_start_idx * 0.9)
+            val_end_idx = test_start_idx
+        else:
+            # Find the last position where date < val_end (since we reset_index, positions are 0-based)
+            val_start_idx = int(val_date_mask[val_date_mask].index[-1]) + 1
+            # Ensure we have room for test set
+            test_start_idx = int(n * (1 - test_ratio))
+            if test_start_idx <= val_start_idx:
+                test_start_idx = min(val_start_idx + int((n - val_start_idx) * 0.5), n)
+            val_end_idx = test_start_idx
+    
+    # Ensure indices are valid
+    val_start_idx = max(0, min(val_start_idx, n - 2))
+    val_end_idx = max(val_start_idx + 1, min(val_end_idx, n))
+    
+    # Split
+    f_train = features_sorted.iloc[:val_start_idx].copy()
+    t_train = targets_sorted.iloc[:val_start_idx].copy()
+    f_val = features_sorted.iloc[val_start_idx:val_end_idx].copy()
+    t_val = targets_sorted.iloc[val_start_idx:val_end_idx].copy()
+    f_test = features_sorted.iloc[val_end_idx:].copy()
+    t_test = targets_sorted.iloc[val_end_idx:].copy()
+    
+    print(f"Time-based split: Train={len(f_train)} ({f_train[game_date_col].min()} to {f_train[game_date_col].max()})")
+    print(f"                  Val={len(f_val)} ({f_val[game_date_col].min()} to {f_val[game_date_col].max()})")
+    print(f"                  Test={len(f_test)} ({f_test[game_date_col].min()} to {f_test[game_date_col].max()})")
+    
+    return f_train, t_train, f_val, t_val, f_test, t_test
 
 
 def build_datasets_and_encoders(cfg: ExperimentConfig):
     base = load_base_dataset(cfg.data)
     ftables = build_feature_tables(base, cfg.data)
 
+    # Use time-based split to avoid data leakage
     (
         f_train,
         t_train,
@@ -67,7 +109,13 @@ def build_datasets_and_encoders(cfg: ExperimentConfig):
         t_val,
         f_test,
         t_test,
-    ) = train_val_test_split(ftables.features, ftables.targets)
+    ) = train_val_test_split_time_based(
+        ftables.features, 
+        ftables.targets, 
+        game_date_col="game_date",
+        val_end_date=cfg.data.val_end_date,
+        test_ratio=0.1
+    )
 
     encoders = fit_encoders(f_train)
 
@@ -126,7 +174,29 @@ def train(cfg: ExperimentConfig | None = None) -> None:
         lr=cfg.training.learning_rate,
         weight_decay=cfg.training.weight_decay,
     )
-    criterion = nn.MSELoss()
+    
+    # Weighted loss function - give more weight to rare events and important stats
+    def weighted_mse_loss(predictions, targets, stat_names):
+        """Weighted MSE that gives more importance to rare events and key stats."""
+        mse_per_stat = (predictions - targets) ** 2
+        
+        # Compute inverse frequency weights (more weight to rare events)
+        stat_weights = torch.ones(len(stat_names), device=targets.device)
+        for i, stat in enumerate(stat_names):
+            # Rare events get higher weight
+            stat_mean = targets[:, i].abs().mean().item()
+            if stat_mean < 0.1:  # Rare events like shutouts
+                stat_weights[i] = 10.0 / (stat_mean + 0.01)
+            elif stat_mean < 0.5:  # Moderately rare
+                stat_weights[i] = 2.0
+            # Key offensive stats get more weight
+            if stat in ['goals', 'assists', 'points']:
+                stat_weights[i] *= 2.0
+        
+        weighted_mse = (mse_per_stat * stat_weights.unsqueeze(0)).mean()
+        return weighted_mse
+    
+    criterion = lambda pred, tgt: weighted_mse_loss(pred, tgt, ALL_TARGET_STATS)
 
     best_val_loss = float("inf")
     patience_counter = 0

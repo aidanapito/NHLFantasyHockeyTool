@@ -101,31 +101,15 @@ def main():
     base = load_base_dataset(cfg.data)
     ftables = build_feature_tables(base, cfg.data)
 
-    # We need to use the same split logic as training
-    # For now, we'll use a simple random split (matching training script)
-    # In production, you'd want to use the same time-based splits
-    import numpy as np
+    # Use the same time-based split logic as training
+    from .train_player_perf import train_val_test_split_time_based
     
-    def train_val_test_split(features, targets, val_ratio: float = 0.1, test_ratio: float = 0.1):
-        n = len(features)
-        n_test = int(n * test_ratio)
-        n_val = int(n * val_ratio)
-        n_train = n - n_val - n_test
-        indices = np.random.permutation(n)
-        train_idx = indices[:n_train]
-        val_idx = indices[n_train : n_train + n_val]
-        test_idx = indices[n_train + n_val :]
-        return (
-            features.iloc[train_idx],
-            targets.iloc[train_idx],
-            features.iloc[val_idx],
-            targets.iloc[val_idx],
-            features.iloc[test_idx],
-            targets.iloc[test_idx],
-        )
-
-    f_train, t_train, f_val, t_val, f_test, t_test = train_val_test_split(
-        ftables.features, ftables.targets
+    f_train, t_train, f_val, t_val, f_test, t_test = train_val_test_split_time_based(
+        ftables.features, 
+        ftables.targets,
+        game_date_col="game_date",
+        val_end_date=cfg.data.val_end_date,
+        test_ratio=0.1
     )
 
     # Select the requested split

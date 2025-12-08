@@ -142,6 +142,76 @@ def build_feature_tables(
     # Age feature
     gl["age"] = _compute_age(gl["birth_date"], gl["game_date"])
 
+    # Opponent quality features (opponent's recent offensive performance)
+    # Aggregate team stats per game (sum of all skater stats, average goalie stats)
+    team_game_stats = gl.groupby(["team", "game_date"]).agg({
+        "goals": "sum",  # Total goals scored by team in this game
+        "shots": "sum",  # Total shots by team
+    }).reset_index()
+    team_game_stats = team_game_stats.sort_values(["team", "game_date"])
+    
+    # Compute rolling averages for each team's offensive stats
+    for w in [5, 10]:
+        team_goals_avg = (
+            team_game_stats.groupby("team")["goals"]
+            .rolling(window=w, min_periods=1)
+            .mean()
+            .reset_index(level=0, drop=True)
+        )
+        team_shots_avg = (
+            team_game_stats.groupby("team")["shots"]
+            .rolling(window=w, min_periods=1)
+            .mean()
+            .reset_index(level=0, drop=True)
+        )
+        team_game_stats[f"team_goals_avg_{w}"] = team_goals_avg.values
+        team_game_stats[f"team_shots_avg_{w}"] = team_shots_avg.values
+        
+        # Shift to avoid leakage (use only past games)
+        team_game_stats[f"team_goals_avg_{w}"] = (
+            team_game_stats.groupby("team")[f"team_goals_avg_{w}"].shift(1).fillna(0.0)
+        )
+        team_game_stats[f"team_shots_avg_{w}"] = (
+            team_game_stats.groupby("team")[f"team_shots_avg_{w}"].shift(1).fillna(0.0)
+        )
+    
+    # Merge opponent stats - opponent_team's offensive strength
+    gl = gl.merge(
+        team_game_stats[["team", "game_date", "team_goals_avg_5", "team_goals_avg_10", 
+                         "team_shots_avg_5", "team_shots_avg_10"]],
+        left_on=["opponent_team", "game_date"],
+        right_on=["team", "game_date"],
+        how="left",
+        suffixes=("", "_opp")
+    )
+    # Rename to indicate these are opponent stats
+    gl = gl.rename(columns={
+        "team_goals_avg_5": "opp_goals_avg_5",
+        "team_goals_avg_10": "opp_goals_avg_10",
+        "team_shots_avg_5": "opp_shots_avg_5",
+        "team_shots_avg_10": "opp_shots_avg_10",
+    })
+    # Drop duplicate team column if it exists
+    if "team_opp" in gl.columns:
+        gl = gl.drop(columns=["team_opp"])
+    gl[["opp_goals_avg_5", "opp_goals_avg_10", "opp_shots_avg_5", "opp_shots_avg_10"]] = (
+        gl[["opp_goals_avg_5", "opp_goals_avg_10", "opp_shots_avg_5", "opp_shots_avg_10"]]
+        .fillna(0.0)
+    )
+    
+    # Restart count features (games since last game, rest days)
+    gl = gl.sort_values(["player_id", "game_date"]).reset_index(drop=True)
+    gl["days_since_last_game"] = (
+        gl.groupby("player_id")["game_date"]
+        .diff()
+        .dt.days
+        .fillna(0)
+    )
+    
+    # Position-specific features
+    gl["is_goalie"] = (gl["position"] == "G").astype(int)
+    gl["is_skater"] = (gl["position"] != "G").astype(int)
+
     # Targets: directly from the GameLog columns
     target_cols: Dict[str, str] = {
         "goals": "goals",
@@ -173,6 +243,7 @@ def build_feature_tables(
         "game_id",
         "season",
         "game_type",
+        "game_date",  # Needed for time-based splitting
         "opponent_team",
         "is_home",
         "team",
@@ -185,6 +256,13 @@ def build_feature_tables(
     feature_cols.extend(
         [c for c in gl.columns if "_roll" in c or "_season_avg" in c]
     )
+    # Add opponent quality and other new features
+    feature_cols.extend([
+        "opp_goals_avg_5", "opp_goals_avg_10", 
+        "opp_shots_avg_5", "opp_shots_avg_10",
+        "days_since_last_game",
+        "is_goalie", "is_skater"
+    ])
 
     features = gl[feature_cols].copy()
 

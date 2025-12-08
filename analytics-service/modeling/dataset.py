@@ -48,12 +48,14 @@ class PlayerGameDataset(Dataset):
 
         # Pre-encode categorical columns and scale numeric columns
         self.cat_cols = ["team", "opponent_team", "position"]
+        # Exclude categorical, ID columns, and datetime columns from numeric processing
+        excluded_cols = self.cat_cols + ["player_id", "game_id", "season", "game_type", "game_date"]
         self.num_cols = [
             c
             for c in self.features.columns
-            if c not in self.cat_cols
-            and c not in ("player_id", "game_id", "season", "game_type")
+            if c not in excluded_cols
             and not isinstance(self.features[c].dtype, pd.CategoricalDtype)
+            and not pd.api.types.is_datetime64_any_dtype(self.features[c])
         ]
 
         self._encoded_cats = self._encode_categoricals(self.features[self.cat_cols])
@@ -113,16 +115,25 @@ def fit_encoders(features: pd.DataFrame) -> Encoders:
 
     numeric_means: Dict[str, float] = {}
     numeric_stds: Dict[str, float] = {}
+    # Exclude categorical, ID columns, and datetime columns
+    excluded_cols = cat_cols + ["player_id", "game_id", "season", "game_type", "game_date"]
     num_cols = [
         c
         for c in features.columns
-        if c not in cat_cols
-        and c not in ("player_id", "game_id", "season", "game_type")
+        if c not in excluded_cols
+        and not pd.api.types.is_datetime64_any_dtype(features[c])
     ]
     for col in num_cols:
-        series = features[col].astype(float)
-        numeric_means[col] = float(series.mean())
-        numeric_stds[col] = float(series.std(ddof=0) or 1.0)
+        # Skip if column is datetime or not numeric
+        if pd.api.types.is_datetime64_any_dtype(features[col]):
+            continue
+        try:
+            series = features[col].astype(float)
+            numeric_means[col] = float(series.mean())
+            numeric_stds[col] = float(series.std(ddof=0) or 1.0)
+        except (TypeError, ValueError):
+            # Skip columns that can't be converted to float
+            continue
 
     return Encoders(
         category_maps=category_maps,
