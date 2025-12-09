@@ -293,6 +293,15 @@ export default async function TeamPage({ params, searchParams }: { params: { tea
         </div>
       </div>
 
+      {team.roster.length > 0 && team.roster.every((r: any) => !r.stats) && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+          <p className="text-sm text-yellow-800">
+            <strong>No stats found:</strong> Player stats are not showing because they haven't been loaded into the database yet. 
+            Click the <strong>"Refresh NHL Stats"</strong> button above to load current season statistics.
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-white rounded-lg shadow p-5">
           <h2 className="text-xl font-semibold text-black mb-4">Roster</h2>

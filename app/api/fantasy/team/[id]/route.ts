@@ -100,6 +100,10 @@ export async function GET(
     // Convert ESPN format to database format if needed
     const leagueSeason = team.league.season
     const season = convertEspnSeasonToDbSeason(seasonParam || leagueSeason)
+    
+    // Debug logging
+    console.log(`[Team API] Team: ${team.teamName}, Season param: ${seasonParam}, League season: ${leagueSeason}, Converted season: ${season}`)
+    console.log(`[Team API] Roster size: ${team.roster.length}`)
 
     const skaterTotals = {
       gamesPlayed: 0,
@@ -131,253 +135,190 @@ export async function GET(
       gaaDenominator: 0,
     }
 
-    // Bulk fetch stats for all roster players for this season
-    const playerIds = team.roster.map(r => r.player.id).filter(id => id != null)
+    // SIMPLE APPROACH: Query ALL players by NHL ID first, then get their stats
+    // Don't filter by stats existence - just get all players and include stats
     
-    let statsRows: any[] = []
-    
-    // CRITICAL: Handle ID mismatch between FantasyRoster and PlayerStats
-    // FantasyRoster.playerId = NHL ID (references Player.nhlId)
-    // PlayerStats.playerId = Database ID (references Player.id)
-    // We need to find ALL Player records with roster NHL IDs, then query their stats
-    
-    // Step 1: Get NHL IDs from roster
+    // Get all NHL IDs from roster
     const nhlIds = team.roster
       .map(r => r.player?.nhlId)
       .filter((id): id is number => id != null)
     
-    if (nhlIds.length > 0) {
-      // Step 2: Find ALL Player records with these NHL IDs (handles duplicates)
-      const allPlayers = await prisma.player.findMany({
-        where: { nhlId: { in: nhlIds } },
-        select: { id: true, nhlId: true, fullName: true }
-      })
-      
-      if (allPlayers.length > 0) {
-        // Step 3: Get ALL database IDs (from all Player records)
-        const allPlayerDbIds = allPlayers.map(p => p.id)
-        
-        // Step 4: Query stats using ALL database IDs
-        let stats = await prisma.playerStats.findMany({
+    console.log(`[Team API] Looking for stats for ${nhlIds.length} players by NHL ID`)
+    console.log(`[Team API] Sample NHL IDs: ${nhlIds.slice(0, 5).join(', ')}`)
+    
+    // Query ALL Player records by NHL ID (don't filter by stats existence)
+    const allPlayers = await prisma.player.findMany({
+      where: {
+        nhlId: { in: nhlIds },  // Match by NHL ID (unique, reliable)
+      },
+      select: {
+        id: true,
+        nhlId: true,
+        fullName: true,
+        position: true,
+        team: true,
+        stats: {
           where: {
-            playerId: { in: allPlayerDbIds },
             season: season,
-            gameType: 'regular'
+            gameType: 'regular',
           },
-          include: {
-            player: {
-              select: { id: true, nhlId: true, fullName: true }
-            }
-          }
-        })
-        
-        // FALLBACK: If no stats found by DB ID, try querying by NHL ID directly
-        // This handles the case where stats are linked to different Player DB IDs
-        if (stats.length === 0) {
-          stats = await prisma.playerStats.findMany({
-            where: {
-              player: {
-                nhlId: { in: nhlIds }
-              },
-              season: season,
-              gameType: 'regular'
-            },
-            include: {
-              player: {
-                select: { id: true, nhlId: true, fullName: true }
-              }
-            }
-          })
-          
-          // FALLBACK 2: If still no stats, try matching by player name
-          // This handles cases where roster has Player records with wrong NHL IDs
-          if (stats.length === 0) {
-            const rosterPlayerNames = team.roster
-              .map(r => r.player?.fullName)
-              .filter((name): name is string => name != null)
-            
-            // Find Player records with matching names that have stats
-            const playersWithStats = await prisma.player.findMany({
-              where: {
-                fullName: { in: rosterPlayerNames },
-                stats: {
-                  some: {
-                    season: season,
-                    gameType: 'regular'
-                  }
-                }
-              },
-              include: {
-                stats: {
-                  where: {
-                    season: season,
-                    gameType: 'regular'
-                  },
-                  take: 1
-                }
-              }
-            })
-            
-            // Convert to stats format
-            stats = playersWithStats
-              .filter(p => p.stats.length > 0)
-              .map(p => ({
-                ...p.stats[0],
-                player: {
-                  id: p.id,
-                  nhlId: p.nhlId,
-                  fullName: p.fullName
-                }
-              }))
-          }
+          take: 1,
+        },
+      },
+    })
+    
+    console.log(`[Team API] Found ${allPlayers.length} Player records for ${nhlIds.length} NHL IDs`)
+    
+    // If no stats for requested season, get stats from any season
+    const allPlayersWithAnyStats = await prisma.player.findMany({
+      where: {
+        nhlId: { in: nhlIds },
+      },
+      select: {
+        id: true,
+        nhlId: true,
+        fullName: true,
+        position: true,
+        team: true,
+        stats: {
+          where: {
+            gameType: 'regular',
+          },
+          take: 1,
+          orderBy: {
+            season: 'desc',
+          },
+        },
+      },
+    })
+    
+    // Create lookup maps: NHL ID -> stats, and Name -> stats (for fallback)
+    const statsByNhlId = new Map<number, typeof allPlayers[0]['stats'][0]>()
+    const statsByName = new Map<string, typeof allPlayers[0]['stats'][0]>()
+    
+    // First, use stats from requested season
+    for (const player of allPlayers) {
+      if (player.stats[0]) {
+        statsByNhlId.set(player.nhlId, player.stats[0])
+        statsByName.set(player.fullName.toLowerCase(), player.stats[0])
+        console.log(`[Team API] ✓ ${player.fullName} (NHL ID: ${player.nhlId}): GP=${player.stats[0].gamesPlayed} [season ${season}]`)
+      }
+    }
+    
+    // Then fill in missing ones from any season
+    for (const player of allPlayersWithAnyStats) {
+      if (player.stats[0]) {
+        if (!statsByNhlId.has(player.nhlId)) {
+          statsByNhlId.set(player.nhlId, player.stats[0])
+          console.log(`[Team API] ✓ ${player.fullName} (NHL ID: ${player.nhlId}): GP=${player.stats[0].gamesPlayed} [season ${player.stats[0].season}]`)
         }
-        
-        if (stats.length > 0) {
-          // Step 5: Map stats by NHL ID and by name (handles duplicate Player records and wrong NHL IDs)
-          const nhlIdToStatsMap = new Map<number, any>()
-          const nameToStatsMap = new Map<string, any>()
-          for (const stat of stats) {
-            // Map by NHL ID
-            const existing = nhlIdToStatsMap.get(stat.player.nhlId)
-            if (!existing || stat.gamesPlayed > existing.gamesPlayed) {
-              nhlIdToStatsMap.set(stat.player.nhlId, stat)
-            }
-            // Map by name (for fallback matching)
-            const existingByName = nameToStatsMap.get(stat.player.fullName.toLowerCase())
-            if (!existingByName || stat.gamesPlayed > existingByName.gamesPlayed) {
-              nameToStatsMap.set(stat.player.fullName.toLowerCase(), stat)
-            }
-          }
-          
-          // Step 6: Match stats to roster entries by NHL ID, then by name as fallback
-          for (const rosterEntry of team.roster) {
-            const nhlId = rosterEntry.player?.nhlId
-            const playerName = rosterEntry.player?.fullName?.toLowerCase()
-            let stat = null
-            
-            // Try NHL ID first
-            if (nhlId && nhlIdToStatsMap.has(nhlId)) {
-              stat = nhlIdToStatsMap.get(nhlId)
-            } 
-            // Fallback to name matching (handles wrong NHL IDs in roster)
-            else if (playerName && nameToStatsMap.has(playerName)) {
-              stat = nameToStatsMap.get(playerName)
-            }
-            
-            if (stat) {
-              statsRows.push(stat)
-            }
-          }
+        if (!statsByName.has(player.fullName.toLowerCase())) {
+          statsByName.set(player.fullName.toLowerCase(), player.stats[0])
+        }
+      }
+    }
+    
+    // FALLBACK: For roster players not matched by NHL ID, try to find by name
+    const statsNhlIds = new Set(statsByNhlId.keys())
+    const missingNhlIds = nhlIds.filter(id => !statsNhlIds.has(id))
+    if (missingNhlIds.length > 0) {
+      console.log(`[Team API] ⚠️  ${missingNhlIds.length} roster players not matched by NHL ID, trying name matching...`)
+      
+      const missingRosterPlayers = team.roster.filter(r => 
+        r.player?.nhlId && missingNhlIds.includes(r.player.nhlId)
+      )
+      
+      // Try matching by name from players we already queried
+      for (const rosterEntry of missingRosterPlayers) {
+        const playerName = rosterEntry.player?.fullName?.toLowerCase()
+        if (playerName && statsByName.has(playerName)) {
+          const stats = statsByName.get(playerName)!
+          // Map it to the roster's NHL ID so it matches
+          statsByNhlId.set(rosterEntry.player.nhlId!, stats)
+          console.log(`[Team API] ✓ Matched ${rosterEntry.player.fullName} by NAME (roster NHL ID: ${rosterEntry.player.nhlId}): GP=${stats.gamesPlayed}`)
         } else {
-          // Fallback: Try other seasons
-          const anyStats = await prisma.playerStats.findMany({
+          // Try direct database lookup by name
+          const playerByName = await prisma.player.findFirst({
             where: {
-              playerId: { in: allPlayerDbIds },
-              gameType: 'regular'
+              fullName: { equals: rosterEntry.player?.fullName || '', mode: 'insensitive' },
+              stats: { some: { gameType: 'regular' } },
             },
-            select: { season: true },
-            distinct: ['season']
-          })
-          
-          const availableSeasons = anyStats.map(s => s.season).sort().reverse()
-          
-          if (availableSeasons.length > 0) {
-            const fallbackSeason = availableSeasons[0]
-            
-            const fallbackStats = await prisma.playerStats.findMany({
-              where: {
-                playerId: { in: allPlayerDbIds },
-                season: fallbackSeason,
-                gameType: 'regular'
+            select: {
+              nhlId: true,
+              fullName: true,
+              id: true,
+              stats: {
+                where: { gameType: 'regular' },
+                take: 1,
+                orderBy: { season: 'desc' },
               },
-              include: {
-                player: {
-                  select: { id: true, nhlId: true, fullName: true }
-                }
-              }
-            })
-            
-            const fallbackMap = new Map<number, any>()
-            for (const stat of fallbackStats) {
-              const existing = fallbackMap.get(stat.player.nhlId)
-              if (!existing || stat.gamesPlayed > existing.gamesPlayed) {
-                fallbackMap.set(stat.player.nhlId, stat)
-              }
-            }
-            
-            for (const rosterEntry of team.roster) {
-              const nhlId = rosterEntry.player?.nhlId
-              if (nhlId && fallbackMap.has(nhlId)) {
-                statsRows.push(fallbackMap.get(nhlId))
-              }
-            }
+            },
+          })
+          if (playerByName?.stats[0]) {
+            console.log(`[Team API] ⚠️  NHL ID MISMATCH: Roster "${rosterEntry.player?.fullName}" has NHL ID ${rosterEntry.player?.nhlId}, but DB has NHL ID ${playerByName.nhlId}`)
+            console.log(`[Team API]   → Using stats from DB player (GP: ${playerByName.stats[0].gamesPlayed})`)
+            statsByNhlId.set(rosterEntry.player.nhlId!, playerByName.stats[0])
           }
         }
       }
     }
     
-    // Build final map: roster player DB ID -> stats
-    // statsRows are matched by NHL ID or name, so we need to map them back to roster entries
-    const playerIdToStats = new Map<number, typeof statsRows[number]>()
-    const nhlIdToStats = new Map<number, typeof statsRows[number]>()
+    console.log(`[Team API] Final: Found stats for ${statsByNhlId.size}/${nhlIds.length} players`)
     
-    // Map stats to roster players by NHL ID first, then by name as fallback
-    for (const stat of statsRows) {
-      // Try to find roster entry by NHL ID first
-      let rosterEntry = team.roster.find(r => r.player?.nhlId === stat.player.nhlId)
-      
-      // If not found by NHL ID, try by name (handles cases where we matched by name)
-      if (!rosterEntry) {
-        rosterEntry = team.roster.find(r => 
-          r.player?.fullName?.toLowerCase() === stat.player.fullName?.toLowerCase()
-        )
-      }
-      
-      if (rosterEntry && rosterEntry.player) {
-        playerIdToStats.set(rosterEntry.player.id, stat)
-        nhlIdToStats.set(rosterEntry.player.nhlId, stat)
-      }
-    }
-
-    const roster = team.roster.map(r => {
+    const roster = team.roster.map((r) => {
       const player = r.player
-      // Try to find stats by database ID first, then by NHL ID as fallback
-      let s = playerIdToStats.get(player.id) || null
-      if (!s) {
-        s = nhlIdToStats.get(player.nhlId) || null
+      if (!player) {
+        return {
+          playerId: 0,
+          name: 'Unknown',
+          position: 'N/A',
+          team: null,
+          slotPosition: r.slotPosition,
+          stats: null,
+        }
       }
+
+      // Get stats from lookup map
+      const stats = statsByNhlId.get(player.nhlId!) || null
+      
+      // Debug logging
+      if (stats) {
+        console.log(`[Team API] ✓ Attaching stats to ${player.fullName} (NHL ID: ${player.nhlId}): GP=${stats.gamesPlayed}, G=${stats.goals}, A=${stats.assists}`)
+      } else if (player.nhlId) {
+        console.log(`[Team API] ❌ No stats in map for ${player.fullName} (NHL ID: ${player.nhlId})`)
+      }
+      
       const isGoalie = player.position === 'G'
 
-      if (s) {
+      // Aggregate totals
+      if (stats) {
         if (isGoalie) {
-          goalieTotals.gamesPlayed += s.gamesPlayed || 0
-          goalieTotals.wins += s.wins || 0
-          goalieTotals.losses += s.losses || 0
-          goalieTotals.otLosses += s.otLosses || 0
-          goalieTotals.saves += s.saves || 0
-          goalieTotals.shotsAgainst += s.shotsAgainst || 0
-          goalieTotals.goalsAgainst += s.goalsAgainst || 0
-          goalieTotals.shutouts += s.shutouts || 0
-          // Save% = saves/shotsAgainst
-          goalieTotals.savePctNumerator += s.saves || 0
-          goalieTotals.savePctDenominator += s.shotsAgainst || 0
-          // GAA ~ goalsAgainst / (TOI/60). If we don't track TOI for goalies, approximate using gamesPlayed
-          if (typeof s.goalsAgainst === 'number' && typeof s.gamesPlayed === 'number' && s.gamesPlayed > 0) {
-            goalieTotals.gaaNumerator += s.goalsAgainst
-            goalieTotals.gaaDenominator += s.gamesPlayed
+          goalieTotals.gamesPlayed += stats.gamesPlayed || 0
+          goalieTotals.wins += stats.wins || 0
+          goalieTotals.losses += stats.losses || 0
+          goalieTotals.otLosses += stats.otLosses || 0
+          goalieTotals.saves += stats.saves || 0
+          goalieTotals.shotsAgainst += stats.shotsAgainst || 0
+          goalieTotals.goalsAgainst += stats.goalsAgainst || 0
+          goalieTotals.shutouts += stats.shutouts || 0
+          goalieTotals.savePctNumerator += stats.saves || 0
+          goalieTotals.savePctDenominator += stats.shotsAgainst || 0
+          if (typeof stats.goalsAgainst === 'number' && typeof stats.gamesPlayed === 'number' && stats.gamesPlayed > 0) {
+            goalieTotals.gaaNumerator += stats.goalsAgainst
+            goalieTotals.gaaDenominator += stats.gamesPlayed
           }
         } else {
-          skaterTotals.gamesPlayed += s.gamesPlayed
-          skaterTotals.goals += s.goals
-          skaterTotals.assists += s.assists
-          skaterTotals.points += s.points
-          skaterTotals.plusMinus += s.plusMinus
-          skaterTotals.pim += s.pim
-          skaterTotals.shotsOnGoal += s.shotsOnGoal || 0
-          skaterTotals.powerPlayPoints += s.powerPlayPoints
-          skaterTotals.hits += s.hits
-          skaterTotals.blockedShots += s.blockedShots
-          skaterTotals.faceoffsWon += s.faceoffsWon
+          skaterTotals.gamesPlayed += stats.gamesPlayed || 0
+          skaterTotals.goals += stats.goals || 0
+          skaterTotals.assists += stats.assists || 0
+          skaterTotals.points += stats.points || 0
+          skaterTotals.plusMinus += stats.plusMinus || 0
+          skaterTotals.pim += stats.pim || 0
+          skaterTotals.shotsOnGoal += stats.shotsOnGoal || 0
+          skaterTotals.powerPlayPoints += stats.powerPlayPoints || 0
+          skaterTotals.hits += stats.hits || 0
+          skaterTotals.blockedShots += stats.blockedShots || 0
+          skaterTotals.faceoffsWon += stats.faceoffsWon || 0
         }
       }
 
@@ -387,7 +328,29 @@ export async function GET(
         position: player.position,
         team: player.team,
         slotPosition: r.slotPosition,
-        stats: s,
+        stats: stats ? {
+          // Explicitly map all stat fields to ensure they're serialized
+          gamesPlayed: stats.gamesPlayed,
+          goals: stats.goals,
+          assists: stats.assists,
+          points: stats.points,
+          plusMinus: stats.plusMinus,
+          pim: stats.pim,
+          shotsOnGoal: stats.shotsOnGoal,
+          powerPlayPoints: stats.powerPlayPoints,
+          hits: stats.hits,
+          blockedShots: stats.blockedShots,
+          faceoffsWon: stats.faceoffsWon,
+          wins: stats.wins,
+          losses: stats.losses,
+          otLosses: stats.otLosses,
+          saves: stats.saves,
+          shotsAgainst: stats.shotsAgainst,
+          goalsAgainst: stats.goalsAgainst,
+          shutouts: stats.shutouts,
+          savePct: stats.savePct,
+          gaa: stats.gaa,
+        } : null,
       }
     })
 
