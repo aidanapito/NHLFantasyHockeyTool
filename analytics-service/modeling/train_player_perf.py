@@ -183,15 +183,26 @@ def train(cfg: ExperimentConfig | None = None) -> None:
         # Compute inverse frequency weights (more weight to rare events)
         stat_weights = torch.ones(len(stat_names), device=targets.device)
         for i, stat in enumerate(stat_names):
-            # Rare events get higher weight
+            # Skip shutouts - they're too rare and cause over-prediction
+            # We'll handle them separately or exclude from loss
+            if stat == 'shutouts':
+                stat_weights[i] = 0.5  # Very low weight to prevent over-fitting
+                continue
+                
             stat_mean = targets[:, i].abs().mean().item()
-            if stat_mean < 0.1:  # Rare events like shutouts
-                stat_weights[i] = 10.0 / (stat_mean + 0.01)
+            
+            # Reduced weights: 3-5x instead of 10x to prevent over-prediction
+            if stat_mean < 0.05:  # Very rare events (but not shutouts)
+                stat_weights[i] = 3.0 / (stat_mean + 0.01)  # Capped at ~3-5x
+                stat_weights[i] = min(stat_weights[i].item(), 5.0)  # Cap at 5x
+            elif stat_mean < 0.1:  # Rare events
+                stat_weights[i] = 3.0
             elif stat_mean < 0.5:  # Moderately rare
-                stat_weights[i] = 2.0
-            # Key offensive stats get more weight
+                stat_weights[i] = 1.5
+            
+            # Key offensive stats get more weight (but not excessive)
             if stat in ['goals', 'assists', 'points']:
-                stat_weights[i] *= 2.0
+                stat_weights[i] *= 1.5  # Reduced from 2.0 to 1.5
         
         weighted_mse = (mse_per_stat * stat_weights.unsqueeze(0)).mean()
         return weighted_mse

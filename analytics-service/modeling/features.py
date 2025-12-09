@@ -142,16 +142,38 @@ def build_feature_tables(
     # Age feature
     gl["age"] = _compute_age(gl["birth_date"], gl["game_date"])
 
-    # Opponent quality features (opponent's recent offensive performance)
-    # Aggregate team stats per game (sum of all skater stats, average goalie stats)
+    # Opponent quality features (opponent's recent offensive AND defensive performance)
+    # Aggregate team stats per game (sum of all skater stats)
     team_game_stats = gl.groupby(["team", "game_date"]).agg({
         "goals": "sum",  # Total goals scored by team in this game
         "shots": "sum",  # Total shots by team
     }).reset_index()
     team_game_stats = team_game_stats.sort_values(["team", "game_date"])
     
-    # Compute rolling averages for each team's offensive stats
+    # Compute team defensive stats (goals/shots allowed) from opponent's perspective
+    # When team A plays team B, team B's goals/shots = team A's goals_against/shots_against
+    opponent_defensive_stats = gl.groupby(["opponent_team", "game_date"]).agg({
+        "goals": "sum",  # Goals scored AGAINST opponent = opponent's goals allowed
+        "shots": "sum",  # Shots taken AGAINST opponent = opponent's shots allowed
+    }).reset_index()
+    opponent_defensive_stats = opponent_defensive_stats.rename(columns={
+        "opponent_team": "team",
+        "goals": "goals_against",
+        "shots": "shots_against"
+    })
+    
+    # Merge defensive stats into team_game_stats
+    team_game_stats = team_game_stats.merge(
+        opponent_defensive_stats,
+        on=["team", "game_date"],
+        how="left"
+    )
+    team_game_stats["goals_against"] = team_game_stats["goals_against"].fillna(0.0)
+    team_game_stats["shots_against"] = team_game_stats["shots_against"].fillna(0.0)
+    
+    # Compute rolling averages for each team's offensive AND defensive stats
     for w in [5, 10]:
+        # Offensive stats (goals/shots scored)
         team_goals_avg = (
             team_game_stats.groupby("team")["goals"]
             .rolling(window=w, min_periods=1)
@@ -164,8 +186,24 @@ def build_feature_tables(
             .mean()
             .reset_index(level=0, drop=True)
         )
+        # Defensive stats (goals/shots allowed) - defensive strength
+        team_goals_against_avg = (
+            team_game_stats.groupby("team")["goals_against"]
+            .rolling(window=w, min_periods=1)
+            .mean()
+            .reset_index(level=0, drop=True)
+        )
+        team_shots_against_avg = (
+            team_game_stats.groupby("team")["shots_against"]
+            .rolling(window=w, min_periods=1)
+            .mean()
+            .reset_index(level=0, drop=True)
+        )
+        
         team_game_stats[f"team_goals_avg_{w}"] = team_goals_avg.values
         team_game_stats[f"team_shots_avg_{w}"] = team_shots_avg.values
+        team_game_stats[f"team_goals_against_avg_{w}"] = team_goals_against_avg.values
+        team_game_stats[f"team_shots_against_avg_{w}"] = team_shots_against_avg.values
         
         # Shift to avoid leakage (use only past games)
         team_game_stats[f"team_goals_avg_{w}"] = (
@@ -174,11 +212,20 @@ def build_feature_tables(
         team_game_stats[f"team_shots_avg_{w}"] = (
             team_game_stats.groupby("team")[f"team_shots_avg_{w}"].shift(1).fillna(0.0)
         )
+        team_game_stats[f"team_goals_against_avg_{w}"] = (
+            team_game_stats.groupby("team")[f"team_goals_against_avg_{w}"].shift(1).fillna(0.0)
+        )
+        team_game_stats[f"team_shots_against_avg_{w}"] = (
+            team_game_stats.groupby("team")[f"team_shots_against_avg_{w}"].shift(1).fillna(0.0)
+        )
     
-    # Merge opponent stats - opponent_team's offensive strength
+    # Merge opponent stats - opponent_team's offensive AND defensive strength
     gl = gl.merge(
-        team_game_stats[["team", "game_date", "team_goals_avg_5", "team_goals_avg_10", 
-                         "team_shots_avg_5", "team_shots_avg_10"]],
+        team_game_stats[["team", "game_date", 
+                         "team_goals_avg_5", "team_goals_avg_10", 
+                         "team_shots_avg_5", "team_shots_avg_10",
+                         "team_goals_against_avg_5", "team_goals_against_avg_10",
+                         "team_shots_against_avg_5", "team_shots_against_avg_10"]],
         left_on=["opponent_team", "game_date"],
         right_on=["team", "game_date"],
         how="left",
@@ -190,14 +237,19 @@ def build_feature_tables(
         "team_goals_avg_10": "opp_goals_avg_10",
         "team_shots_avg_5": "opp_shots_avg_5",
         "team_shots_avg_10": "opp_shots_avg_10",
+        "team_goals_against_avg_5": "opp_goals_against_avg_5",  # Opponent defensive strength
+        "team_goals_against_avg_10": "opp_goals_against_avg_10",
+        "team_shots_against_avg_5": "opp_shots_against_avg_5",
+        "team_shots_against_avg_10": "opp_shots_against_avg_10",
     })
     # Drop duplicate team column if it exists
     if "team_opp" in gl.columns:
         gl = gl.drop(columns=["team_opp"])
-    gl[["opp_goals_avg_5", "opp_goals_avg_10", "opp_shots_avg_5", "opp_shots_avg_10"]] = (
-        gl[["opp_goals_avg_5", "opp_goals_avg_10", "opp_shots_avg_5", "opp_shots_avg_10"]]
-        .fillna(0.0)
-    )
+    # Fill missing values
+    opp_cols = ["opp_goals_avg_5", "opp_goals_avg_10", "opp_shots_avg_5", "opp_shots_avg_10",
+                "opp_goals_against_avg_5", "opp_goals_against_avg_10",
+                "opp_shots_against_avg_5", "opp_shots_against_avg_10"]
+    gl[opp_cols] = gl[opp_cols].fillna(0.0)
     
     # Restart count features (games since last game, rest days)
     gl = gl.sort_values(["player_id", "game_date"]).reset_index(drop=True)
@@ -260,6 +312,8 @@ def build_feature_tables(
     feature_cols.extend([
         "opp_goals_avg_5", "opp_goals_avg_10", 
         "opp_shots_avg_5", "opp_shots_avg_10",
+        "opp_goals_against_avg_5", "opp_goals_against_avg_10",  # Opponent defensive strength
+        "opp_shots_against_avg_5", "opp_shots_against_avg_10",
         "days_since_last_game",
         "is_goalie", "is_skater"
     ])
