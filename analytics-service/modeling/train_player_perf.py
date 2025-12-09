@@ -144,17 +144,21 @@ def train(cfg: ExperimentConfig | None = None) -> None:
 
     train_ds, val_ds, test_ds, encoders = build_datasets_and_encoders(cfg)
 
+    # Use num_workers=0 on macOS to avoid multiprocessing issues
+    import platform
+    num_workers = 0 if platform.system() == "Darwin" else cfg.training.num_workers
+    
     train_loader = DataLoader(
         train_ds,
         batch_size=cfg.training.batch_size,
         shuffle=True,
-        num_workers=cfg.training.num_workers,
+        num_workers=num_workers,
     )
     val_loader = DataLoader(
         val_ds,
         batch_size=cfg.training.batch_size,
         shuffle=False,
-        num_workers=cfg.training.num_workers,
+        num_workers=num_workers,
     )
 
     num_numeric = train_ds._numeric.shape[1]
@@ -279,7 +283,7 @@ def train(cfg: ExperimentConfig | None = None) -> None:
         test_ds,
         batch_size=cfg.training.batch_size,
         shuffle=False,
-        num_workers=cfg.training.num_workers,
+        num_workers=num_workers,
     )
     
     evaluate_model(
