@@ -623,19 +623,70 @@ export async function fetchScheduleForDateRange(
     const start = new Date(startDate);
     const end = new Date(endDate);
     
-    // Iterate through each date in the range
-    for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
-      const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD
+    // NHL API returns a full week when you query a single date
+    // So we only need to call the API once per week, not per day
+    // Calculate the week start (Monday) of the start date
+    const weekStart = new Date(start);
+    const dayOfWeek = weekStart.getDay();
+    const diff = weekStart.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1); // Adjust to Monday
+    weekStart.setDate(diff);
+    weekStart.setHours(0, 0, 0, 0);
+    
+    // If the range spans multiple weeks, we need multiple API calls
+    const weeksToFetch = new Set<string>();
+    let currentDate = new Date(start);
+    
+    while (currentDate <= end) {
+      const weekStartForDate = new Date(currentDate);
+      const dayOfWeekForDate = weekStartForDate.getDay();
+      const diffForDate = weekStartForDate.getDate() - dayOfWeekForDate + (dayOfWeekForDate === 0 ? -6 : 1);
+      weekStartForDate.setDate(diffForDate);
+      weekStartForDate.setHours(0, 0, 0, 0);
+      const weekKey = weekStartForDate.toISOString().split('T')[0];
+      weeksToFetch.add(weekKey);
+      
+      // Move to next week
+      currentDate.setDate(currentDate.getDate() + 7);
+    }
+    
+    // Fetch once per week
+    const startDateStr = start.toISOString().split('T')[0];
+    const endDateStr = end.toISOString().split('T')[0];
+    
+    for (const weekStartStr of weeksToFetch) {
       try {
-        const games = await fetchScheduleForDate(dateStr);
-        allGames.push(...games);
+        const games = await fetchScheduleForDate(weekStartStr);
+        
+        // Filter games to only include those in our date range
+        // Use string comparison for dates to avoid timezone issues
+        const filteredGames = games.filter(game => {
+          if (!game.gameDate) return false;
+          const gameDateStr = game.gameDate.includes('T') 
+            ? game.gameDate.split('T')[0] 
+            : game.gameDate.split(' ')[0];
+          // Simple string comparison for YYYY-MM-DD format
+          const inRange = gameDateStr >= startDateStr && gameDateStr <= endDateStr;
+          return inRange;
+        });
+        
+        allGames.push(...filteredGames);
       } catch (error) {
-        console.error(`Error fetching schedule for ${dateStr}, continuing...`, error);
-        // Continue with other dates even if one fails
+        console.error(`Error fetching schedule for week starting ${weekStartStr}, continuing...`, error);
+        // Continue with other weeks even if one fails
       }
     }
 
-    return allGames;
+    // Remove duplicates by game ID
+    const seenGameIds = new Set<number>();
+    const uniqueGames = allGames.filter(game => {
+      if (seenGameIds.has(game.id)) {
+        return false;
+      }
+      seenGameIds.add(game.id);
+      return true;
+    });
+
+    return uniqueGames;
   } catch (error) {
     console.error(`Error fetching schedule for date range ${startDate} to ${endDate}:`, error);
     throw error;
@@ -961,4 +1012,5 @@ function parseTimeOnIceToSeconds(timeStr: string | number | null | undefined): n
   
   return null;
 }
+
 
