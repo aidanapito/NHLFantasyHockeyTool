@@ -9,12 +9,21 @@ import {
   type LeagueSettings,
 } from '@/lib/league-settings'
 
+interface PlayerGame {
+  gameId: number
+  date: string // YYYY-MM-DD
+  opponent: string // Opponent team abbreviation
+  isHome: boolean
+}
+
 interface PlayerGameCount {
   playerId: number
   playerName: string
+  position: string
   nhlTeam: string | null
   gamesCount: number
-  gameDates: string[]
+  gameDates: string[] // Legacy field for backwards compatibility
+  games: PlayerGame[] // Detailed game information
 }
 
 interface TeamStats {
@@ -908,6 +917,150 @@ export default function MatchupAnalyzer() {
                     })()}
                   </p>
                   <p className="text-sm text-gray-600 mt-1">Categories {analysis.team2.teamName} leads</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Player Game Schedules */}
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <h3 className="text-xl font-bold mb-4 text-gray-900">Player Game Schedules</h3>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Team 1 Players */}
+              <div>
+                <h4 className="font-semibold text-lg mb-3 text-blue-600">
+                  {analysis.team1.teamName}
+                  <span className="ml-2 text-sm text-gray-600 font-normal">
+                    ({analysis.team1.totalGames} total games)
+                  </span>
+                </h4>
+                <div className="space-y-3 max-h-[600px] overflow-y-auto">
+                  {analysis.team1.playerBreakdown
+                    .sort((a, b) => (b.gamesCount || 0) - (a.gamesCount || 0))
+                    .map((player) => (
+                      <div
+                        key={player.playerId}
+                        className="border border-gray-200 rounded-lg p-3 bg-gray-50"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-sm text-gray-900">
+                              {player.playerName}
+                            </span>
+                            <span className="text-xs text-gray-500 px-2 py-0.5 bg-gray-200 rounded">
+                              {player.position}
+                            </span>
+                            {player.nhlTeam && (
+                              <span className="text-xs text-gray-600 px-2 py-0.5 bg-blue-100 text-blue-700 rounded">
+                                {player.nhlTeam}
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-sm font-semibold text-gray-700">
+                            {player.gamesCount || 0} {player.gamesCount === 1 ? 'game' : 'games'}
+                          </span>
+                        </div>
+                        {player.games && player.games.length > 0 ? (
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {player.games.map((game, idx) => {
+                              const gameDate = new Date(game.date + 'T12:00:00')
+                              const dayAbbrev = gameDate.toLocaleDateString('en-US', {
+                                weekday: 'short',
+                              })
+                              const dateStr = gameDate.toLocaleDateString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                              })
+
+                              return (
+                                <div
+                                  key={`${game.gameId}-${idx}`}
+                                  className="text-xs px-2 py-1 rounded bg-white border border-gray-300"
+                                >
+                                  <div className="font-medium text-gray-900">
+                                    {dayAbbrev} {dateStr}
+                                  </div>
+                                  <div className="text-gray-600">
+                                    {game.isHome ? 'vs' : '@'} {game.opponent}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          <div className="text-xs text-gray-500 italic mt-1">No games scheduled</div>
+                        )}
+                      </div>
+                    ))}
+                </div>
+              </div>
+
+              {/* Team 2 Players */}
+              <div>
+                <h4 className="font-semibold text-lg mb-3 text-red-600">
+                  {analysis.team2.teamName}
+                  <span className="ml-2 text-sm text-gray-600 font-normal">
+                    ({analysis.team2.totalGames} total games)
+                  </span>
+                </h4>
+                <div className="space-y-3 max-h-[600px] overflow-y-auto">
+                  {analysis.team2.playerBreakdown
+                    .sort((a, b) => (b.gamesCount || 0) - (a.gamesCount || 0))
+                    .map((player) => (
+                      <div
+                        key={player.playerId}
+                        className="border border-gray-200 rounded-lg p-3 bg-gray-50"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-sm text-gray-900">
+                              {player.playerName}
+                            </span>
+                            <span className="text-xs text-gray-500 px-2 py-0.5 bg-gray-200 rounded">
+                              {player.position}
+                            </span>
+                            {player.nhlTeam && (
+                              <span className="text-xs text-gray-600 px-2 py-0.5 bg-red-100 text-red-700 rounded">
+                                {player.nhlTeam}
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-sm font-semibold text-gray-700">
+                            {player.gamesCount || 0} {player.gamesCount === 1 ? 'game' : 'games'}
+                          </span>
+                        </div>
+                        {player.games && player.games.length > 0 ? (
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {player.games.map((game, idx) => {
+                              const gameDate = new Date(game.date + 'T12:00:00')
+                              const dayAbbrev = gameDate.toLocaleDateString('en-US', {
+                                weekday: 'short',
+                              })
+                              const dateStr = gameDate.toLocaleDateString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                              })
+
+                              return (
+                                <div
+                                  key={`${game.gameId}-${idx}`}
+                                  className="text-xs px-2 py-1 rounded bg-white border border-gray-300"
+                                >
+                                  <div className="font-medium text-gray-900">
+                                    {dayAbbrev} {dateStr}
+                                  </div>
+                                  <div className="text-gray-600">
+                                    {game.isHome ? 'vs' : '@'} {game.opponent}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          <div className="text-xs text-gray-500 italic mt-1">No games scheduled</div>
+                        )}
+                      </div>
+                    ))}
                 </div>
               </div>
             </div>

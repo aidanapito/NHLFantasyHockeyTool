@@ -44,12 +44,21 @@ interface NormalizedTeam {
   roster: NormalizedRosterEntry[]
 }
 
+export interface PlayerGame {
+  gameId: number;
+  date: string; // YYYY-MM-DD
+  opponent: string; // Opponent team abbreviation
+  isHome: boolean;
+}
+
 export interface PlayerGameCount {
   playerId: number;
   playerName: string;
+  position: string;
   nhlTeam: string | null;
   gamesCount: number;
-  gameDates: string[]; // Dates when the player's team plays
+  gameDates: string[]; // Dates when the player's team plays (legacy, for backwards compatibility)
+  games: PlayerGame[]; // Detailed game information
 }
 
 export interface TeamStats {
@@ -144,9 +153,11 @@ async function analyzeTeamMatchup(
       playerBreakdown.push({
         playerId: rosterEntry.nhlId,
         playerName: rosterEntry.fullName,
+        position: rosterEntry.position,
         nhlTeam: null,
         gamesCount: 0,
         gameDates: [],
+        games: [],
       })
       continue
     }
@@ -161,6 +172,7 @@ async function analyzeTeamMatchup(
     // Track unique games for this player's team
     const playerUniqueGames = new Set<number>()
     const playerGameDates: string[] = []
+    const playerGames: PlayerGame[] = []
     
     teamGames.forEach(game => {
       // Add to unique games set (by game ID) for total count
@@ -183,15 +195,31 @@ async function analyzeTeamMatchup(
         }
         
         playerGameDates.push(dateStr)
+        
+        // Determine opponent and home/away status
+        const isHome = game.homeTeam.abbrev === rosterEntry.team
+        const opponent = isHome ? game.awayTeam.abbrev : game.homeTeam.abbrev
+        
+        playerGames.push({
+          gameId: game.id,
+          date: dateStr,
+          opponent,
+          isHome,
+        })
       }
     })
+
+    // Sort games by date
+    playerGames.sort((a, b) => a.date.localeCompare(b.date))
 
     playerBreakdown.push({
       playerId: rosterEntry.nhlId,
       playerName: rosterEntry.fullName,
+      position: rosterEntry.position,
       nhlTeam: rosterEntry.team,
       gamesCount: playerUniqueGames.size, // Count of unique games for this player's team
-      gameDates: playerGameDates,
+      gameDates: playerGameDates, // Legacy field for backwards compatibility
+      games: playerGames,
     })
   }
 
