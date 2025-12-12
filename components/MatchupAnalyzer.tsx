@@ -89,6 +89,7 @@ export default function MatchupAnalyzer() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [standings, setStandings] = useState<any[]>([])
+  const [showProjections, setShowProjections] = useState(false)
 
   const loadSavedTeams = useCallback(
     async (settings: LeagueSettings | null, showSpinner = true) => {
@@ -235,6 +236,7 @@ export default function MatchupAnalyzer() {
           weekStartDate: weekStartDate || undefined,
           leagueId: leagueSettings?.leagueId || undefined,
           season: leagueSettings?.season || undefined,
+          projections: showProjections,
         }),
       })
       if (!response.ok) {
@@ -722,6 +724,24 @@ export default function MatchupAnalyzer() {
           />
         </div>
 
+        {/* Projections Toggle */}
+        <div className="mb-4">
+          <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showProjections}
+              onChange={(e) => setShowProjections(e.target.checked)}
+              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+            />
+            <span>Show Projected Stats (ML Model)</span>
+          </label>
+          {showProjections && (
+            <p className="mt-1 text-xs text-gray-500">
+              Projections may take longer to generate. Using ML model to predict player performance for the week.
+            </p>
+          )}
+        </div>
+
         {/* Analyze Button */}
         <button
           onClick={analyzeMatchup}
@@ -923,6 +943,148 @@ export default function MatchupAnalyzer() {
               </div>
             </div>
           </div>
+
+          {/* Projected Stats Section */}
+          {showProjections && analysis.projections && (
+            <div className="bg-gradient-to-br from-green-50 to-blue-50 rounded-lg shadow-md p-6 border-2 border-green-200">
+              <h3 className="text-xl font-bold mb-4 text-gray-900 flex items-center gap-2">
+                <span className="text-2xl">📊</span>
+                Projected Stats (ML Model)
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Projected Skater Stats */}
+                <div>
+                  <h4 className="font-semibold text-lg mb-3 text-gray-700">Projected Skater Stats</h4>
+                  <div className="space-y-2">
+                    {[
+                      { key: 'goals', label: 'Goals' },
+                      { key: 'assists', label: 'Assists' },
+                      { key: 'plusMinus', label: '+/-' },
+                      { key: 'pim', label: 'PIM' },
+                      { key: 'powerPlayPoints', label: 'PPP' },
+                      { key: 'shotsOnGoal', label: 'Shots' },
+                      { key: 'hits', label: 'Hits' },
+                      { key: 'blockedShots', label: 'Blocks' },
+                    ].map(({ key, label }) => {
+                      const current1 = analysis.team1.stats[key as keyof TeamStats] || 0
+                      const current2 = analysis.team2.stats[key as keyof TeamStats] || 0
+                      const projected1 = analysis.projections!.team1[key as keyof TeamStats] || 0
+                      const projected2 = analysis.projections!.team2[key as keyof TeamStats] || 0
+                      const team1Wins = projected1 > projected2
+                      const team2Wins = projected2 > projected1
+                      
+                      return (
+                        <div key={key} className="flex items-center justify-between p-2 bg-white/70 rounded">
+                          <span className="font-medium text-sm text-gray-700 w-20">{label}</span>
+                          <div className="flex items-center gap-4 flex-1">
+                            <span className={`font-semibold text-sm ${team1Wins ? 'text-green-600' : team2Wins ? 'text-gray-500' : 'text-gray-700'} w-20 text-right`}>
+                              {projected1.toFixed(1)}
+                            </span>
+                            <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                              <div className="flex h-full">
+                                <div 
+                                  className={`${team1Wins ? 'bg-green-500' : 'bg-gray-300'} transition-all`}
+                                  style={{ 
+                                    width: projected1 + projected2 > 0 
+                                      ? `${(projected1 / (projected1 + projected2)) * 100}%` 
+                                      : '50%' 
+                                  }}
+                                />
+                                <div 
+                                  className={`${team2Wins ? 'bg-orange-500' : 'bg-gray-300'} transition-all`}
+                                  style={{ 
+                                    width: projected1 + projected2 > 0 
+                                      ? `${(projected2 / (projected1 + projected2)) * 100}%` 
+                                      : '50%' 
+                                  }}
+                                />
+                              </div>
+                            </div>
+                            <span className={`font-semibold text-sm ${team2Wins ? 'text-orange-600' : team1Wins ? 'text-gray-500' : 'text-gray-700'} w-20 text-right`}>
+                              {projected2.toFixed(1)}
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Projected Goalie Stats */}
+                <div>
+                  <h4 className="font-semibold text-lg mb-3 text-gray-700">Projected Goalie Stats</h4>
+                  <div className="space-y-2">
+                    {[
+                      { key: 'wins', label: 'Wins', higherBetter: true },
+                      { key: 'shutouts', label: 'Shutouts', higherBetter: true },
+                      { key: 'savePct', label: 'SV%', higherBetter: true, format: (v: number) => v.toFixed(2) + '%' },
+                      { key: 'gaa', label: 'GAA', higherBetter: false, format: (v: number) => v.toFixed(2) },
+                    ].map(({ key, label, higherBetter, format }) => {
+                      const projected1 = analysis.projections!.team1[key as keyof TeamStats] || 0
+                      const projected2 = analysis.projections!.team2[key as keyof TeamStats] || 0
+                      const team1Wins = higherBetter ? projected1 > projected2 : projected1 < projected2
+                      const team2Wins = higherBetter ? projected2 > projected1 : projected2 < projected1
+                      
+                      const displayValue = (v: number) => format ? format(v) : v.toFixed(1)
+                      
+                      return (
+                        <div key={key} className="flex items-center justify-between p-2 bg-white/70 rounded">
+                          <span className="font-medium text-sm text-gray-700 w-20">{label}</span>
+                          <div className="flex items-center gap-4 flex-1">
+                            <span className={`font-semibold text-sm ${team1Wins ? 'text-green-600' : team2Wins ? 'text-gray-500' : 'text-gray-700'} w-20 text-right`}>
+                              {displayValue(projected1)}
+                            </span>
+                            <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                              <div className="flex h-full">
+                                <div 
+                                  className={`${team1Wins ? 'bg-green-500' : 'bg-gray-300'} transition-all`}
+                                  style={{ 
+                                    width: projected1 + projected2 > 0 
+                                      ? `${(projected1 / (projected1 + projected2)) * 100}%` 
+                                      : '50%' 
+                                  }}
+                                />
+                                <div 
+                                  className={`${team2Wins ? 'bg-orange-500' : 'bg-gray-300'} transition-all`}
+                                  style={{ 
+                                    width: projected1 + projected2 > 0 
+                                      ? `${(projected2 / (projected1 + projected2)) * 100}%` 
+                                      : '50%' 
+                                  }}
+                                />
+                              </div>
+                            </div>
+                            <span className={`font-semibold text-sm ${team2Wins ? 'text-orange-600' : team1Wins ? 'text-gray-500' : 'text-gray-700'} w-20 text-right`}>
+                              {displayValue(projected2)}
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+              
+              {/* Projected Category Wins Summary */}
+              <div className="mt-6 pt-6 border-t border-green-200">
+                <h4 className="font-semibold text-lg mb-3 text-gray-700">Projected Category Wins</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="text-center p-4 bg-green-100 rounded-lg border-2 border-green-300">
+                    <p className="text-3xl font-bold text-green-700">
+                      {analysis.projections.categoryWins.team1}
+                    </p>
+                    <p className="text-sm text-gray-700 mt-1">Categories {analysis.team1.teamName} is projected to win</p>
+                  </div>
+                  <div className="text-center p-4 bg-orange-100 rounded-lg border-2 border-orange-300">
+                    <p className="text-3xl font-bold text-orange-700">
+                      {analysis.projections.categoryWins.team2}
+                    </p>
+                    <p className="text-sm text-gray-700 mt-1">Categories {analysis.team2.teamName} is projected to win</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Player Game Schedules */}
           <div className="bg-white rounded-lg shadow-md p-6">

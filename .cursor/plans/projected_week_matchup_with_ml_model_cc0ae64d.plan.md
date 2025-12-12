@@ -4,28 +4,28 @@ overview: Add projected week matchup functionality to the Matchup Analyzer by in
 todos:
   - id: create-batch-predict-script
     content: Create Python batch prediction script (batch_predict.py) that accepts JSON input, loads model once, and predicts stats for multiple player-game combinations
-    status: pending
+    status: completed
   - id: extend-inference-helpers
     content: Add predict_game_for_player() helper function to inference.py that accepts explicit game context (opponent, date, home/away) and builds appropriate features
-    status: pending
+    status: completed
   - id: create-batch-api-endpoint
     content: Create /api/ml-projections/matchup endpoint that calls Python batch prediction script via child_process and returns predictions
-    status: pending
+    status: completed
     dependencies:
       - create-batch-predict-script
   - id: enhance-matchup-service
     content: Add analyzeWeeklyMatchupWithProjections() function to matchup-analyzer.ts that gets player games, calls batch prediction, and aggregates results
-    status: pending
+    status: completed
     dependencies:
       - create-batch-api-endpoint
   - id: update-matchup-api-route
     content: Modify /api/matchup/analyze to accept projections parameter and call enhanced matchup service when requested
-    status: pending
+    status: completed
     dependencies:
       - enhance-matchup-service
   - id: update-matchup-ui
     content: Add projections toggle and UI to MatchupAnalyzer.tsx to display projected stats alongside current stats with category win indicators
-    status: pending
+    status: completed
     dependencies:
       - update-matchup-api-route
 ---
@@ -100,15 +100,15 @@ Matchup Analyzer UI - Enhanced
 
 - Load model once at startup (cache for batch efficiency)
 - For each prediction:
-    - Load player's historical `GameLog` data up to (but not including) `game_date`
-    - Build feature vector using existing `build_feature_tables` logic
-    - Use last available game's context for rolling stats
-    - Make prediction using loaded model
+                - Load player's historical `GameLog` data up to (but not including) `game_date`
+                - Build feature vector using existing `build_feature_tables` logic
+                - Use last available game's context for rolling stats
+                - Make prediction using loaded model
 - Return JSON output with predicted stats for each request
 - Handle edge cases:
-    - Player with no historical data (use zeros/defaults)
-    - Game date in the past (validation error)
-    - Missing opponent/team info
+                - Player with no historical data (use zeros/defaults)
+                - Game date in the past (validation error)
+                - Missing opponent/team info
 
 ### 2. Create Batch Prediction API Endpoint
 
@@ -141,16 +141,16 @@ Matchup Analyzer UI - Enhanced
 **File**: `lib/matchup-analyzer.ts`
 
 - Add new function `analyzeWeeklyMatchupWithProjections()`:
-    - Takes same inputs as `analyzeWeeklyMatchup()` (team refs, week start)
-    - Calls existing `analyzeWeeklyMatchup()` for current stats
-    - For each active player in each team:
-        - Find games they play in the week (from schedule)
-        - Prepare prediction requests for each game
-    - Batch all prediction requests and call `/api/ml-projections/matchup`
-    - Aggregate per-player predictions across week (sum stats)
-    - Aggregate team totals from player projections
-    - Calculate projected category wins
-    - Return enhanced `MatchupComparison` with:
+                - Takes same inputs as `analyzeWeeklyMatchup()` (team refs, week start)
+                - Calls existing `analyzeWeeklyMatchup()` for current stats
+                - For each active player in each team:
+                                - Find games they play in the week (from schedule)
+                                - Prepare prediction requests for each game
+                - Batch all prediction requests and call `/api/ml-projections/matchup`
+                - Aggregate per-player predictions across week (sum stats)
+                - Aggregate team totals from player projections
+                - Calculate projected category wins
+                - Return enhanced `MatchupComparison` with:
     ```typescript
     {
       ...existing_fields,
@@ -172,8 +172,8 @@ Matchup Analyzer UI - Enhanced
 
 - Add optional query parameter `?projections=true` or body field
 - If projections requested:
-    - Call `analyzeWeeklyMatchupWithProjections()` instead of `analyzeWeeklyMatchup()`
-    - Return enhanced response with projections
+                - Call `analyzeWeeklyMatchupWithProjections()` instead of `analyzeWeeklyMatchup()`
+                - Return enhanced response with projections
 
 ### 5. Update Matchup Analyzer UI
 
@@ -181,28 +181,28 @@ Matchup Analyzer UI - Enhanced
 
 - Add toggle/checkbox: "Show Projected Stats"
 - When enabled:
-    - Call API with `projections: true` parameter
-    - Display projected stats section alongside current stats
-    - Show side-by-side comparison:
-        - Current stats (existing)
-        - Projected stats (new)
-        - Difference/trend indicators
-    - Highlight projected category winners
-    - Show projected final score (category wins)
+                - Call API with `projections: true` parameter
+                - Display projected stats section alongside current stats
+                - Show side-by-side comparison:
+                                - Current stats (existing)
+                                - Projected stats (new)
+                                - Difference/trend indicators
+                - Highlight projected category winners
+                - Show projected final score (category wins)
 - Add loading state for projection generation
 - Handle errors (model not available, prediction failures)
 
 ### 6. UI Design Enhancements
 
 - **Projected Stats Section**:
-    - Similar layout to current stats comparison
-    - Color coding: green (favorable projection), red (unfavorable), gray (neutral)
-    - Show projected vs current differential
-    - Projected category wins badge
+                - Similar layout to current stats comparison
+                - Color coding: green (favorable projection), red (unfavorable), gray (neutral)
+                - Show projected vs current differential
+                - Projected category wins badge
 - **Player-Level Projections** (optional, advanced view):
-    - Expandable section showing per-player projections
-    - Per-game breakdown for players with multiple games
-    - Confidence indicators (if model provides uncertainty)
+                - Expandable section showing per-player projections
+                - Per-game breakdown for players with multiple games
+                - Confidence indicators (if model provides uncertainty)
 
 ## Technical Considerations
 
@@ -262,22 +262,22 @@ Use same category calculation as existing matchup analyzer.
 
 1. **Unit Tests**:
 
-      - Test batch prediction script with sample inputs
-      - Test projection aggregation logic
-      - Test category win calculations
+                        - Test batch prediction script with sample inputs
+                        - Test projection aggregation logic
+                        - Test category win calculations
 
 2. **Integration Tests**:
 
-      - Test full flow: UI → API → Python → Results
-      - Test with real team rosters
-      - Test edge cases (no historical data, missing games, etc.)
+                        - Test full flow: UI → API → Python → Results
+                        - Test with real team rosters
+                        - Test edge cases (no historical data, missing games, etc.)
 
 3. **Manual Testing**:
 
-      - Select two teams in UI
-      - Enable projections
-      - Verify predictions appear
-      - Compare projections to actual results (for past weeks)
+                        - Select two teams in UI
+                        - Enable projections
+                        - Verify predictions appear
+                        - Compare projections to actual results (for past weeks)
 
 ## Future Enhancements (Out of Scope)
 

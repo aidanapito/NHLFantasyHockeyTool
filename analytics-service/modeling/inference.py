@@ -124,4 +124,129 @@ def predict_next_game_for_player(
     return {name: float(val) for name, val in zip(loaded.target_names, outputs)}
 
 
+def predict_game_for_player(
+    player_id: int,
+    game_date: datetime,
+    opponent_team: str,
+    player_team: str,
+    is_home: bool,
+    cfg: Optional[ExperimentConfig] = None,
+) -> Dict[str, float]:
+    """
+    Predict stats for a specific future game for a player.
+    
+    Args:
+        player_id: NHL player ID
+        game_date: Date of the game to predict (must be in the future)
+        opponent_team: Opponent team abbreviation (e.g., "TOR")
+        player_team: Player's team abbreviation (e.g., "EDM")
+        is_home: Whether the player's team is playing at home
+        cfg: Optional experiment config
+        
+    Returns:
+        Dictionary of predicted stats (goals, assists, points, etc.)
+    """
+    from datetime import date
+    
+    cfg = cfg or default_experiment_config()
+    
+    # Validate game_date is in the future (or at least not in the past)
+    today = datetime.now().date()
+    if isinstance(game_date, datetime):
+        game_date_obj = game_date.date()
+    elif isinstance(game_date, date):
+        game_date_obj = game_date
+    else:
+        game_date_obj = pd.to_datetime(game_date).date()
+    
+    if game_date_obj < today:
+        raise ValueError(f"game_date {game_date_obj} is in the past. Predictions require a future date.")
+    
+    # Load model (should be cached in production)
+    loaded = load_latest_model(cfg)
+    
+    # Load base dataset and build features
+    base = load_base_dataset(cfg.data)
+    ftables = build_feature_tables(base, cfg.data)
+    
+    # Filter to this player's historical games (strictly before game_date)
+    features = ftables.features.copy()
+    player_rows = features[features["player_id"] == player_id].copy()
+    
+    if player_rows.empty:
+        # Player has no historical data - return zeros/defaults
+        return {name: 0.0 for name in loaded.target_names}
+    
+    # Convert game_date to datetime for comparison
+    game_date_dt = pd.to_datetime(game_date)
+    player_rows["game_date_dt"] = pd.to_datetime(player_rows["game_date"])
+    historical_rows = player_rows[player_rows["game_date_dt"] < game_date_dt].copy()
+    
+    if historical_rows.empty:
+        # No historical games before this date - return zeros/defaults
+        return {name: 0.0 for name in loaded.target_names}
+    
+    # Get the most recent historical game's features (this contains rolling stats)
+    last_historical_row = historical_rows.sort_values("game_date_dt").tail(1).copy()
+    
+    # Create a synthetic row for the future game
+    future_row = last_historical_row.copy()
+    
+    # Override game-specific fields
+    future_row["game_date"] = game_date_dt
+    future_row["opponent_team"] = opponent_team
+    future_row["is_home"] = 1 if is_home else 0
+    future_row["team"] = player_team
+    
+    # Calculate days_since_last_game (from last historical game to future game)
+    last_game_date = last_historical_row["game_date_dt"].iloc[0]
+    days_diff = (game_date_dt - last_game_date).days
+    future_row["days_since_last_game"] = max(0, days_diff)
+    
+    # Calculate days_since_season_start for the future game
+    future_row["season_start"] = future_row["game_date"].dt.to_period("Y").dt.start_time
+    future_row["days_since_season_start"] = (future_row["game_date"] - future_row["season_start"]).dt.days
+    future_row["day_of_week"] = future_row["game_date"].dt.weekday
+    
+    # For opponent quality features, we'll need to compute them from historical data
+    # For now, use the last known values (these might be slightly stale but better than nothing)
+    # In a production system, you might want to recompute opponent quality up to the prediction date
+    
+    # Drop helper columns
+    future_row = future_row.drop(columns=["game_date_dt"], errors="ignore")
+    
+    # Create a dummy targets row (filled with zeros, won't be used for prediction)
+    dummy_targets = pd.DataFrame(
+        {name: [0.0] for name in loaded.target_names},
+        index=future_row.index
+    )
+    
+    # Create dataset and get prediction
+    try:
+        ds = PlayerGameDataset(future_row, dummy_targets, loaded.encoders, target_names=loaded.target_names)
+        batch = ds[0]
+        numeric = batch["numeric"].unsqueeze(0)
+        categorical = batch["categorical"].unsqueeze(0)
+        
+        with torch.no_grad():
+            outputs = loaded.model(numeric, categorical).numpy().squeeze(0)
+        
+        # Convert to dict, ensuring non-negative values for certain stats
+        result = {}
+        for name, val in zip(loaded.target_names, outputs):
+            float_val = float(val)
+            # Ensure non-negative values for counts/stats
+            if name in ["goals", "assists", "points", "shots", "shotsOnGoal", "hits", "blocks",
+                       "powerPlayPoints", "pim", "timeOnIceSeconds", "wins", "saves", 
+                       "shotsAgainst", "goalsAgainst", "shutouts"]:
+                float_val = max(0.0, float_val)
+            result[name] = float_val
+        
+        return result
+    except Exception as e:
+        # If feature construction fails, return zeros
+        print(f"Warning: Failed to predict for player {player_id}: {e}")
+        return {name: 0.0 for name in loaded.target_names}
+
+
 
