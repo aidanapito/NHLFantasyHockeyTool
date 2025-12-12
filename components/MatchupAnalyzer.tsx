@@ -233,6 +233,8 @@ export default function MatchupAnalyzer() {
           team1,
           team2,
           weekStartDate: weekStartDate || undefined,
+          leagueId: leagueSettings?.leagueId || undefined,
+          season: leagueSettings?.season || undefined,
         }),
       })
       if (!response.ok) {

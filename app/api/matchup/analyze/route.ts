@@ -76,10 +76,57 @@ export async function GET(request: NextRequest) {
   }
 }
 
+/**
+ * Fetch ESPN standings data for a league
+ */
+async function fetchStandingsData(leagueId?: string, season?: string): Promise<any[]> {
+  if (!leagueId) {
+    console.log('[Matchup API] No leagueId provided, skipping standings fetch')
+    return []
+  }
+  
+  try {
+    const params = new URLSearchParams({ leagueId })
+    if (season) {
+      params.set('season', season)
+    }
+    const url = `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/fantasy/espn-standings?${params.toString()}`
+    console.log(`[Matchup API] Fetching ESPN standings from: ${url}`)
+    
+    const response = await fetch(url, {
+      cache: 'no-store',
+    })
+    
+    console.log(`[Matchup API] ESPN standings response status: ${response.status}`)
+    
+    if (response.ok) {
+      const data = await response.json()
+      const standings = data.standings || data.results || []
+      console.log(`[Matchup API] Successfully fetched ${standings.length} teams from ESPN standings`)
+      if (standings.length > 0) {
+        console.log(`[Matchup API] Sample team: ${standings[0].teamName}`, {
+          hasG: 'G' in standings[0],
+          G: standings[0].G,
+          A: standings[0].A,
+          SOG: standings[0].SOG,
+        })
+      }
+      return standings
+    } else {
+      const errorData = await response.json().catch(() => ({}))
+      console.error(`[Matchup API] ESPN standings API returned ${response.status}:`, errorData)
+    }
+  } catch (error: any) {
+    console.error('[Matchup API] Error fetching standings:', error.message || error)
+  }
+  
+  return []
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { team1, team2, weekStartDate } = body;
+    const { team1, team2, weekStartDate, leagueId, season } = body;
 
     if (!team1 || !team2) {
       return NextResponse.json(
@@ -91,11 +138,19 @@ export async function POST(request: NextRequest) {
     // Parse week start date if provided
     const weekStart = weekStartDate ? new Date(weekStartDate) : undefined;
 
+    // Fetch ESPN standings data if leagueId is provided (primary source for season stats)
+    let standingsData: any[] = []
+    if (leagueId) {
+      standingsData = await fetchStandingsData(leagueId, season)
+      console.log(`[Matchup API] Fetched ${standingsData.length} teams from ESPN standings`)
+    }
+
     // Analyze the matchup
     const analysis = await analyzeWeeklyMatchup(
       team1 as TeamReference,
       team2 as TeamReference,
-      weekStart
+      weekStart,
+      standingsData // Pass standings data to analyzer
     );
 
     return NextResponse.json({

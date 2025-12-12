@@ -250,10 +250,19 @@ async function analyzeTeamMatchup(
   let totalGoalieSaves = 0
   let totalGoalieGoalsAgainst = 0
 
+  let playersWithStats = 0
+  let playersWithoutStats = 0
+
   for (const rosterEntry of activeRoster) {
     const stats = rosterEntry.stats
 
-    if (!stats) continue
+    if (!stats) {
+      playersWithoutStats++
+      console.log(`[Matchup] Player ${rosterEntry.fullName} (${rosterEntry.position}) has no stats`)
+      continue
+    }
+
+    playersWithStats++
 
     // Skater stats
     teamStats.goals += stats.goals || 0
@@ -280,6 +289,22 @@ async function analyzeTeamMatchup(
       }
     }
   }
+
+  console.log(`[Matchup] Team ${team.teamName} stats aggregation:`, {
+    totalPlayers: activeRoster.length,
+    playersWithStats,
+    playersWithoutStats,
+    aggregatedStats: {
+      goals: teamStats.goals,
+      assists: teamStats.assists,
+      points: teamStats.points,
+      shotsOnGoal: teamStats.shotsOnGoal,
+      hits: teamStats.hits,
+      blockedShots: teamStats.blockedShots,
+      wins: teamStats.wins,
+      shutouts: teamStats.shutouts,
+    }
+  })
 
   // Calculate goalie averages
   if (totalGoalieGames > 0) {
@@ -325,12 +350,45 @@ function filterGamesByWeek(games: NHLGame[], weekStart: Date, weekEnd: Date): NH
 }
 
 /**
+ * Merge ESPN standings stats into team stats (season totals)
+ */
+function mergeStandingsStats(currentStats: TeamStats, standings: any): TeamStats {
+  return {
+    // Skater stats from ESPN standings (season totals)
+    goals: standings.G !== undefined && standings.G !== null ? Number(standings.G) : (currentStats.goals ?? 0),
+    assists: standings.A !== undefined && standings.A !== null ? Number(standings.A) : (currentStats.assists ?? 0),
+    points: standings.PTS !== undefined && standings.PTS !== null ? Number(standings.PTS) : (standings.points !== undefined ? Number(standings.points) : (currentStats.points ?? 0)),
+    plusMinus: standings.plusMinus !== undefined && standings.plusMinus !== null ? Number(standings.plusMinus) : (standings['+/-'] !== undefined ? Number(standings['+/-']) : (currentStats.plusMinus ?? 0)),
+    pim: standings.PIM !== undefined && standings.PIM !== null ? Number(standings.PIM) : (currentStats.pim ?? 0),
+    powerPlayPoints: standings.PPP !== undefined && standings.PPP !== null ? Number(standings.PPP) : (currentStats.powerPlayPoints ?? 0),
+    shotsOnGoal: standings.SOG !== undefined && standings.SOG !== null ? Number(standings.SOG) : (standings.shotsOnGoal !== undefined ? Number(standings.shotsOnGoal) : (standings.shots !== undefined ? Number(standings.shots) : (currentStats.shotsOnGoal ?? 0))),
+    hits: standings.HIT !== undefined && standings.HIT !== null ? Number(standings.HIT) : (currentStats.hits ?? 0),
+    blockedShots: standings.BLK !== undefined && standings.BLK !== null ? Number(standings.BLK) : (standings.blockedShots !== undefined ? Number(standings.blockedShots) : (standings.blocks !== undefined ? Number(standings.blocks) : (currentStats.blockedShots ?? 0))),
+    
+    // Goalie stats from ESPN standings
+    wins: standings.W !== undefined && standings.W !== null ? Number(standings.W) : (currentStats.wins ?? 0),
+    shutouts: standings.SO !== undefined && standings.SO !== null ? Number(standings.SO) : (currentStats.shutouts ?? 0),
+    saves: standings.saves !== undefined && standings.saves !== null ? Number(standings.saves) : (currentStats.saves ?? 0),
+    goalsAgainst: standings.GA !== undefined && standings.GA !== null ? Number(standings.GA) : (currentStats.goalsAgainst ?? 0),
+    
+    // Calculated stats
+    gaa: standings.GAA !== undefined && standings.GAA !== null ? Number(standings.GAA) : (currentStats.gaa ?? 0),
+    savePct: standings.SV !== undefined && standings.SV !== null 
+      ? (typeof standings.SV === 'number' 
+          ? (standings.SV > 1 ? standings.SV : standings.SV * 100) 
+          : parseFloat(String(standings.SV)) * 100)
+      : (currentStats.savePct ?? 0),
+  }
+}
+
+/**
  * Analyze matchup between two fantasy teams for a given week
  */
 export async function analyzeWeeklyMatchup(
   team1Input: TeamReference | string,
   team2Input: TeamReference | string,
-  weekStartDate?: Date
+  weekStartDate?: Date,
+  standingsData?: any[] // Optional ESPN standings data with season totals
 ): Promise<MatchupComparison> {
   const team1Ref = normalizeTeamReference(team1Input)
   const team2Ref = normalizeTeamReference(team2Input)
@@ -352,6 +410,50 @@ export async function analyzeWeeklyMatchup(
     analyzeTeamMatchup(team1Ref, weekStart, schedule),
     analyzeTeamMatchup(team2Ref, weekStart, schedule),
   ])
+
+  // If standings data is provided, replace stats with season totals from ESPN
+  if (standingsData && standingsData.length > 0) {
+    console.log(`[Matchup Analyzer] Attempting to match teams with ${standingsData.length} standings entries`)
+    
+    // Match teams by ID or name
+    const team1Standings = standingsData.find((s: any) => {
+      const team1Id = team1Analysis.teamId?.toString()
+      const standingsId = (s.id || s.teamId || s.team_id)?.toString()
+      if (team1Id && standingsId && team1Id === standingsId) return true
+      
+      // Fallback to name matching
+      const team1Name = team1Analysis.teamName?.toLowerCase().trim().replace(/\([^)]*\)/g, '').replace(/[^a-z0-9]/g, '')
+      const standingsName = (s.teamName || '').toLowerCase().trim().replace(/\([^)]*\)/g, '').replace(/[^a-z0-9]/g, '')
+      return team1Name && standingsName && (team1Name === standingsName || team1Name.includes(standingsName) || standingsName.includes(team1Name))
+    })
+
+    const team2Standings = standingsData.find((s: any) => {
+      const team2Id = team2Analysis.teamId?.toString()
+      const standingsId = (s.id || s.teamId || s.team_id)?.toString()
+      if (team2Id && standingsId && team2Id === standingsId) return true
+      
+      const team2Name = team2Analysis.teamName?.toLowerCase().trim().replace(/\([^)]*\)/g, '').replace(/[^a-z0-9]/g, '')
+      const standingsName = (s.teamName || '').toLowerCase().trim().replace(/\([^)]*\)/g, '').replace(/[^a-z0-9]/g, '')
+      return team2Name && standingsName && (team2Name === standingsName || team2Name.includes(standingsName) || standingsName.includes(team2Name))
+    })
+
+    // Replace stats with standings (season totals)
+    if (team1Standings) {
+      console.log(`[Matchup Analyzer] Using ESPN standings for team1: ${team1Analysis.teamName}`)
+      team1Analysis.stats = mergeStandingsStats(team1Analysis.stats, team1Standings)
+    } else {
+      console.warn(`[Matchup Analyzer] Team1 standings not found - using aggregated player stats`)
+    }
+    
+    if (team2Standings) {
+      console.log(`[Matchup Analyzer] Using ESPN standings for team2: ${team2Analysis.teamName}`)
+      team2Analysis.stats = mergeStandingsStats(team2Analysis.stats, team2Standings)
+    } else {
+      console.warn(`[Matchup Analyzer] Team2 standings not found - using aggregated player stats`)
+    }
+  } else {
+    console.log(`[Matchup Analyzer] No standings data provided - using aggregated player stats`)
+  }
 
   // Determine advantage
   const gamesDifference = team1Analysis.totalGames - team2Analysis.totalGames
@@ -490,14 +592,27 @@ async function fetchDatabaseTeam(teamRef: TeamReference): Promise<NormalizedTeam
     throw new Error(`Team ${teamRef.id} not found`)
   }
 
-  const roster: NormalizedRosterEntry[] = team.roster.map(entry => ({
-    nhlId: entry.player.nhlId,
-    fullName: entry.player.fullName,
-    team: entry.player.team,
-    position: entry.player.position,
-    slotPosition: entry.slotPosition,
-    stats: entry.player.stats?.[0] ?? null,
-  }))
+  const roster: NormalizedRosterEntry[] = team.roster.map(entry => {
+    const stats = entry.player.stats?.[0] ?? null
+    if (!stats) {
+      console.log(`[Matchup] Player ${entry.player.fullName} (ID: ${entry.player.nhlId}) has no stats for season 20252026`)
+    } else {
+      console.log(`[Matchup] Player ${entry.player.fullName} has stats:`, {
+        goals: stats.goals,
+        assists: stats.assists,
+        points: stats.points,
+        season: stats.season,
+      })
+    }
+    return {
+      nhlId: entry.player.nhlId,
+      fullName: entry.player.fullName,
+      team: entry.player.team,
+      position: entry.player.position,
+      slotPosition: entry.slotPosition,
+      stats,
+    }
+  })
 
   return {
     id: team.id,

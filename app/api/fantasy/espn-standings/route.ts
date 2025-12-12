@@ -68,19 +68,86 @@ export async function GET(request: NextRequest) {
     // Load storage state
     const storageState = JSON.parse(fs.readFileSync(STORAGE_PATH, 'utf-8'));
 
-    // Launch browser in headless mode
-    // Increase timeout to handle slow ESPN pages
-    const browser = await chromium.launch({
-      headless: true,
-      timeout: 60000, // 60 second timeout
-    });
+    // Launch browser - try different modes for macOS compatibility
+    // macOS often blocks headless browsers, especially headless-shell
+    // Try regular chromium first (most stable on macOS)
+    let browser
+    let browserLaunched = false
+    
+    // Strategy: Try headed mode first (most compatible with macOS)
+    // Then fallback to headless if headed fails
+    const launchOptions = [
+      {
+        headless: false,
+        name: 'headed mode',
+        args: ['--no-sandbox', '--disable-setuid-sandbox'] // Helpful for macOS
+      },
+      {
+        headless: true,
+        name: 'headless mode',
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      }
+    ]
+
+    for (const options of launchOptions) {
+      try {
+        console.log(`Attempting to launch browser in ${options.name}...`)
+        browser = await chromium.launch({
+          headless: options.headless,
+          timeout: 60000,
+          args: options.args,
+        })
+        
+        // Verify browser is actually alive by checking if it's connected
+        try {
+          // Simple check: try to create a test context (fastest way to verify browser is alive)
+          const testContext = await browser.newContext()
+          await testContext.close()
+          console.log(`Browser launched successfully in ${options.name}`)
+          browserLaunched = true
+          break
+        } catch (verifyError: any) {
+          console.warn(`Browser launched but verification failed: ${verifyError.message}`)
+          try {
+            await browser.close()
+          } catch {
+            // Ignore close errors
+          }
+          browser = null
+        }
+      } catch (launchError: any) {
+        console.warn(`${options.name} launch failed: ${launchError.message}`)
+        // Continue to next option
+      }
+    }
+
+    if (!browserLaunched || !browser) {
+      throw new Error(
+        'Failed to launch browser in all modes. This is likely a macOS security/permissions issue. ' +
+        'Try: 1) Grant Full Disk Access to your terminal in System Preferences, 2) Restart your terminal, ' +
+        '3) Run: npx playwright install chromium'
+      )
+    }
 
     // Create context with stored authentication
-    const context = await browser.newContext({
-      storageState,
-    });
+    let context
+    try {
+      context = await browser.newContext({
+        storageState,
+      });
+    } catch (contextError: any) {
+      await browser.close()
+      throw new Error(`Failed to create browser context: ${contextError.message}. Browser may have crashed.`)
+    }
 
-    const page = await context.newPage();
+    let page
+    try {
+      page = await context.newPage();
+    } catch (pageError: any) {
+      await context.close()
+      await browser.close()
+      throw new Error(`Failed to create page: ${pageError.message}. Browser may have crashed.`)
+    }
 
     try {
 
@@ -633,7 +700,7 @@ export async function GET(request: NextRequest) {
               if (teamName && Object.keys(stats).length > 0) {
                 // Try to match with existing team data - be more flexible with matching
                 let matchedTeam = null;
-                for (const [existingTeamName, existingData] of teamDataMap.entries()) {
+                for (const [existingTeamName, existingData] of Array.from(teamDataMap.entries())) {
                   // Normalize names for matching - remove punctuation, spaces, case differences
                   const normalize = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, '');
                   const existingNorm = normalize(existingTeamName);
@@ -646,11 +713,11 @@ export async function GET(request: NextRequest) {
                   }
                   
                   // Try partial matching (handle cases like "Boeser than You" vs "Boeser than You (Bridget...)")
-                  const existingWords = existingTeamName.toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 2);
-                  const currentWords = teamName.toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 2);
+                  const existingWords = existingTeamName.toLowerCase().split(/[^a-z0-9]+/).filter((w: string) => w.length > 2);
+                  const currentWords = teamName.toLowerCase().split(/[^a-z0-9]+/).filter((w: string) => w.length > 2);
                   
                   // Match if they share significant words
-                  const commonWords = existingWords.filter(w => currentWords.includes(w));
+                  const commonWords = existingWords.filter((w: string) => currentWords.includes(w));
                   if (commonWords.length >= 2 || (commonWords.length === 1 && commonWords[0].length > 4)) {
                     matchedTeam = existingTeamName;
                     break;
@@ -866,15 +933,23 @@ export async function GET(request: NextRequest) {
       // Check if it's an authentication error before closing
       let isAuthError = false;
       try {
-        const currentUrl = page.url();
-        if (currentUrl.includes('login')) {
+        const currentUrl = page?.url();
+        if (currentUrl?.includes('login')) {
           isAuthError = true;
         }
       } catch {
         // Page might be closed
       }
 
-      await browser.close();
+      // Try to close browser gracefully
+      try {
+        if (browser) {
+          await browser.close();
+        }
+      } catch (closeError) {
+        // Browser might already be closed - ignore
+        console.warn('Browser already closed or error closing:', closeError);
+      }
       
       if (scrapingError.message?.includes('Could not find') || isAuthError) {
         return NextResponse.json(
@@ -883,6 +958,21 @@ export async function GET(request: NextRequest) {
             hint: 'Run: npm run espn-login'
           },
           { status: 401 }
+        );
+      }
+
+      // Check if it's a browser launch/close error
+      if (scrapingError.message?.includes('Target page, context or browser has been closed') || 
+          scrapingError.message?.includes('browserType.launch')) {
+        console.error('Browser crashed or failed to launch. This may be a macOS permissions issue.')
+        return NextResponse.json(
+          { 
+            error: 'Browser failed to launch. This may be a macOS permissions issue with Playwright.',
+            message: 'The Playwright browser process is being killed immediately. This could be due to macOS security settings.',
+            hint: 'Try: 1) Check System Preferences > Security & Privacy > Privacy > Full Disk Access for your terminal/node, 2) Try restarting your terminal, 3) Run: npm run espn-login again',
+            details: scrapingError.message
+          },
+          { status: 500 }
         );
       }
 
