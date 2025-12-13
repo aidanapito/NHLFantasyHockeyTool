@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 import * as path from 'path';
+import * as fs from 'fs';
 
 // Ensure this route is only executed at runtime, not during build
 export const dynamic = 'force-dynamic';
@@ -89,11 +90,18 @@ export async function POST(request: NextRequest) {
       })),
     };
 
-    // Find Python executable
-    const pythonCmd = process.env.PYTHON_CMD || 'python3';
-    
-    // Get the project root
+    // Find Python executable - prefer venv if it exists, fallback to system Python
     const projectRoot = path.resolve(process.cwd());
+    const venvPython = path.join(projectRoot, 'analytics-service', 'venv', 'bin', 'python3');
+    let pythonCmd = process.env.PYTHON_CMD;
+    
+    if (!pythonCmd) {
+      if (fs.existsSync(venvPython)) {
+        pythonCmd = venvPython;
+      } else {
+        pythonCmd = 'python3';
+      }
+    }
     
     // Path to the Python module
     const pythonModule = 'analytics-service.modeling.batch_predict';
@@ -102,14 +110,21 @@ export async function POST(request: NextRequest) {
     console.log(`[Batch Prediction API] Python command: ${pythonCmd}`);
     console.log(`[Batch Prediction API] Project root: ${projectRoot}`);
     console.log(`[Batch Prediction API] Python module: ${pythonModule}`);
+    console.log(`[Batch Prediction API] Using venv: ${pythonCmd === venvPython}`);
+    console.log(`[Batch Prediction API] PYTHONPATH will be: ${projectRoot}`);
 
     // Spawn Python process with timeout
+    // Add analytics-service to PYTHONPATH so imports work
+    const pythonPath = process.env.PYTHONPATH 
+      ? `${process.env.PYTHONPATH}:${projectRoot}`
+      : projectRoot;
+    
     const pythonProcess = spawn(pythonCmd, ['-m', pythonModule], {
       cwd: projectRoot,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {
         ...process.env,
-        PYTHONPATH: projectRoot,
+        PYTHONPATH: pythonPath,
         PYTHONUNBUFFERED: '1', // Ensure output is not buffered
       },
     });

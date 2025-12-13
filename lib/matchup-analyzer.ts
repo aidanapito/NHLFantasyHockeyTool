@@ -1127,9 +1127,17 @@ export async function analyzeWeeklyMatchupWithProjections(
 
   try {
     console.log(`[Matchup Projections] Making batch prediction request for ${predictionRequests.length} player-game combinations`);
+    console.log(`[Matchup Projections] Sample request:`, predictionRequests.slice(0, 2));
     
-    const apiUrl = `${INTERNAL_API_BASE_URL}/api/ml-projections/matchup`;
+    // Use relative URL for same-origin requests (works in both dev and prod)
+    // Only use absolute URL if we're in a server-to-server context
+    const apiUrl = typeof window === 'undefined' 
+      ? `${INTERNAL_API_BASE_URL}/api/ml-projections/matchup`
+      : '/api/ml-projections/matchup';
+    
     console.log(`[Matchup Projections] Calling API: ${apiUrl}`);
+    console.log(`[Matchup Projections] INTERNAL_API_BASE_URL: ${INTERNAL_API_BASE_URL}`);
+    console.log(`[Matchup Projections] Is server-side: ${typeof window === 'undefined'}`);
     console.log(`[Matchup Projections] Request count: ${predictionRequests.length}`);
     
     let response: Response;
@@ -1144,8 +1152,14 @@ export async function analyzeWeeklyMatchupWithProjections(
         }),
         cache: 'no-store',
       });
+      console.log(`[Matchup Projections] Response status: ${response.status} ${response.statusText}`);
     } catch (fetchError: any) {
       console.error(`[Matchup Projections] Fetch failed:`, fetchError);
+      console.error(`[Matchup Projections] Fetch error details:`, {
+        message: fetchError.message,
+        stack: fetchError.stack,
+        name: fetchError.name,
+      });
       // Return base analysis without projections if fetch fails
       return baseAnalysis;
     }
@@ -1185,8 +1199,16 @@ export async function analyzeWeeklyMatchupWithProjections(
 
     const data = await response.json();
     const predictions = data.predictions || [];
+    const errors = data.errors || [];
     
     console.log(`[Matchup Projections] Received ${predictions.length} predictions from API`);
+    if (errors.length > 0) {
+      console.warn(`[Matchup Projections] API returned ${errors.length} errors:`, errors);
+    }
+    if (predictions.length === 0) {
+      console.warn(`[Matchup Projections] No predictions returned. Errors:`, errors);
+      console.warn(`[Matchup Projections] Full API response:`, JSON.stringify(data, null, 2));
+    }
 
     // Create a map of player-game predictions
     const predictionMap = new Map<string, any>();
