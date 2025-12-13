@@ -685,145 +685,6 @@ function aggregateProjectedPlayerStats(
   return stats
 }
 
-/**
- * Analyze weekly matchup with ML projections
- */
-export async function analyzeWeeklyMatchupWithProjections(
-  team1Input: TeamReference | string,
-  team2Input: TeamReference | string,
-  weekStartDate?: Date,
-  standingsData?: any[]
-): Promise<MatchupComparison> {
-  // First, get the base matchup analysis (current stats)
-  const baseAnalysis = await analyzeWeeklyMatchup(
-    team1Input,
-    team2Input,
-    weekStartDate,
-    standingsData
-  )
-  
-  // Get week boundaries
-  const weekStart = weekStartDate ? new Date(weekStartDate) : new Date()
-  const weekStartNormalized = getWeekStart(weekStart)
-  const weekEnd = new Date(weekStartNormalized)
-  weekEnd.setDate(weekEnd.getDate() + 6)
-  weekEnd.setHours(23, 59, 59, 999)
-  
-  // Prepare prediction requests for all player games
-  const predictionRequests: Array<{
-    playerId: number
-    gameDate: string
-    opponentTeam: string
-    playerTeam: string
-    isHome: boolean
-  }> = []
-  
-  // Collect predictions for team1
-  for (const player of baseAnalysis.team1.playerBreakdown) {
-    if (!player.nhlTeam) continue
-    
-    for (const game of player.games) {
-      predictionRequests.push({
-        playerId: player.playerId,
-        gameDate: game.date,
-        opponentTeam: game.opponent,
-        playerTeam: player.nhlTeam,
-        isHome: game.isHome,
-      })
-    }
-  }
-  
-  // Collect predictions for team2
-  for (const player of baseAnalysis.team2.playerBreakdown) {
-    if (!player.nhlTeam) continue
-    
-    for (const game of player.games) {
-      predictionRequests.push({
-        playerId: player.playerId,
-        gameDate: game.date,
-        opponentTeam: game.opponent,
-        playerTeam: player.nhlTeam,
-        isHome: game.isHome,
-      })
-    }
-  }
-  
-  if (predictionRequests.length === 0) {
-    // No games to predict - return base analysis without projections
-    console.warn('[Matchup Analyzer] No games to predict for projections')
-    return baseAnalysis
-  }
-  
-  // Call batch prediction API
-  console.log(`[Matchup Analyzer] Requesting ${predictionRequests.length} player-game predictions`)
-  
-  try {
-    const apiUrl = `${INTERNAL_API_BASE_URL}/api/ml-projections/matchup`
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ predictions: predictionRequests }),
-    })
-    
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
-      console.error(`[Matchup Analyzer] Prediction API error: ${response.status}`, errorData)
-      // Return base analysis without projections on error
-      return baseAnalysis
-    }
-    
-    const predictionResults = await response.json()
-    const predictions = predictionResults.predictions || []
-    
-    if (predictionResults.errors && predictionResults.errors.length > 0) {
-      console.warn(`[Matchup Analyzer] ${predictionResults.errors.length} prediction errors:`, predictionResults.errors)
-    }
-    
-    // Separate predictions by team
-    const team1Predictions: typeof predictions = []
-    const team2Predictions: typeof predictions = []
-    
-    const team1PlayerIds = new Set(baseAnalysis.team1.playerBreakdown.map(p => p.playerId))
-    const team2PlayerIds = new Set(baseAnalysis.team2.playerBreakdown.map(p => p.playerId))
-    
-    for (const pred of predictions) {
-      if (team1PlayerIds.has(pred.playerId)) {
-        team1Predictions.push(pred)
-      } else if (team2PlayerIds.has(pred.playerId)) {
-        team2Predictions.push(pred)
-      }
-    }
-    
-    // Aggregate projected stats
-    const team1ProjectedStats = aggregateProjectedPlayerStats(
-      team1Predictions,
-      baseAnalysis.team1.playerBreakdown
-    )
-    
-    const team2ProjectedStats = aggregateProjectedPlayerStats(
-      team2Predictions,
-      baseAnalysis.team2.playerBreakdown
-    )
-    
-    // Calculate category wins
-    const categoryWins = calculateCategoryWins(team1ProjectedStats, team2ProjectedStats)
-    
-    // Return enhanced analysis with projections
-    return {
-      ...baseAnalysis,
-      projections: {
-        team1: team1ProjectedStats,
-        team2: team2ProjectedStats,
-        categoryWins,
-      },
-    }
-  } catch (error: any) {
-    console.error('[Matchup Analyzer] Error fetching projections:', error)
-    // Return base analysis without projections on error
-    return baseAnalysis
-  }
-}
-
 function normalizeTeamReference(input: TeamReference | string): TeamReference {
   if (typeof input === 'string') {
     return { id: input }
@@ -1179,6 +1040,315 @@ async function fetchEspnTeam(teamRef: TeamReference): Promise<NormalizedTeam> {
     id: match.teamId?.toString?.() ?? teamRef.id,
     teamName: match.teamName ?? `Team ${teamRef.id}`,
     roster,
+  }
+}
+
+/**
+ * Analyze matchup with ML projections for upcoming week
+ */
+export async function analyzeWeeklyMatchupWithProjections(
+  team1Input: TeamReference | string,
+  team2Input: TeamReference | string,
+  weekStartDate?: Date,
+  standingsData?: any[]
+): Promise<MatchupComparison> {
+  // First get the base matchup analysis (current stats)
+  const baseAnalysis = await analyzeWeeklyMatchup(
+    team1Input,
+    team2Input,
+    weekStartDate,
+    standingsData
+  );
+
+  // Prepare prediction requests for all player games in the week
+  const predictionRequests: Array<{
+    playerId: number;
+    gameDate: string;
+    opponentTeam: string;
+    playerTeam: string;
+    isHome: boolean;
+  }> = [];
+
+  // Collect games for team1 players
+  for (const player of baseAnalysis.team1.playerBreakdown) {
+    if (player.games && player.games.length > 0 && player.nhlTeam) {
+      for (const game of player.games) {
+        predictionRequests.push({
+          playerId: player.playerId,
+          gameDate: game.date,
+          opponentTeam: game.opponent,
+          playerTeam: player.nhlTeam,
+          isHome: game.isHome,
+        });
+      }
+    }
+  }
+
+  // Collect games for team2 players
+  for (const player of baseAnalysis.team2.playerBreakdown) {
+    if (player.games && player.games.length > 0 && player.nhlTeam) {
+      for (const game of player.games) {
+        predictionRequests.push({
+          playerId: player.playerId,
+          gameDate: game.date,
+          opponentTeam: game.opponent,
+          playerTeam: player.nhlTeam,
+          isHome: game.isHome,
+        });
+      }
+    }
+  }
+
+  // If no games to predict, return base analysis without projections
+  if (predictionRequests.length === 0) {
+    return baseAnalysis;
+  }
+
+  // Call batch prediction API
+  let team1ProjectedStats: TeamStats = {
+    goals: 0,
+    assists: 0,
+    points: 0,
+    plusMinus: 0,
+    pim: 0,
+    powerPlayPoints: 0,
+    shotsOnGoal: 0,
+    hits: 0,
+    blockedShots: 0,
+    wins: 0,
+    shutouts: 0,
+    saves: 0,
+    goalsAgainst: 0,
+    gaa: 0,
+    savePct: 0,
+  };
+
+  let team2ProjectedStats: TeamStats = { ...team1ProjectedStats };
+
+  try {
+    console.log(`[Matchup Projections] Making batch prediction request for ${predictionRequests.length} player-game combinations`);
+    
+    const apiUrl = `${INTERNAL_API_BASE_URL}/api/ml-projections/matchup`;
+    console.log(`[Matchup Projections] Calling API: ${apiUrl}`);
+    console.log(`[Matchup Projections] Request count: ${predictionRequests.length}`);
+    
+    let response: Response;
+    try {
+      response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          predictions: predictionRequests,
+        }),
+        cache: 'no-store',
+      });
+    } catch (fetchError: any) {
+      console.error(`[Matchup Projections] Fetch failed:`, fetchError);
+      // Return base analysis without projections if fetch fails
+      return baseAnalysis;
+    }
+
+    if (!response.ok) {
+      const contentType = response.headers.get('content-type');
+      let errorText = '';
+      try {
+        if (contentType?.includes('application/json')) {
+          const errorJson = await response.json();
+          errorText = JSON.stringify(errorJson);
+        } else {
+          const text = await response.text();
+          // If we got HTML, it's likely an error page
+          if (text.includes('<!DOCTYPE') || text.includes('<html')) {
+            errorText = `Server returned HTML error page (status ${response.status}). Check server logs.`;
+          } else {
+            errorText = text.substring(0, 500);
+          }
+        }
+      } catch (e: any) {
+        errorText = `Failed to read error response: ${e.message}`;
+      }
+      console.error(`[Matchup Projections] API returned ${response.status}:`, errorText);
+      // Return base analysis without projections if API fails
+      return baseAnalysis;
+    }
+    
+    // Verify we got JSON
+    const contentType = response.headers.get('content-type');
+    if (!contentType?.includes('application/json')) {
+      const text = await response.text();
+      console.error(`[Matchup Projections] Expected JSON but got ${contentType}. Response preview:`, text.substring(0, 200));
+      // Return base analysis without projections
+      return baseAnalysis;
+    }
+
+    const data = await response.json();
+    const predictions = data.predictions || [];
+    
+    console.log(`[Matchup Projections] Received ${predictions.length} predictions from API`);
+
+    // Create a map of player-game predictions
+    const predictionMap = new Map<string, any>();
+    for (const pred of predictions) {
+      const key = `${pred.playerId}-${pred.gameDate}`;
+      const stats = pred.stats || {};
+      predictionMap.set(key, stats);
+      if (Object.keys(stats).length === 0) {
+        console.warn(`[Matchup Projections] Empty stats for ${key}`);
+      }
+    }
+    
+    console.log(`[Matchup Projections] Created prediction map with ${predictionMap.size} entries`);
+
+    // Aggregate projections per player, then per team
+    // Team 1 players
+    for (const player of baseAnalysis.team1.playerBreakdown) {
+      if (player.games && player.games.length > 0) {
+        for (const game of player.games) {
+          const key = `${player.playerId}-${game.date}`;
+          const gamePred = predictionMap.get(key);
+          
+          if (gamePred) {
+            // Aggregate skater stats
+            team1ProjectedStats.goals += gamePred.goals || 0;
+            team1ProjectedStats.assists += gamePred.assists || 0;
+            team1ProjectedStats.points += gamePred.points || 0;
+            team1ProjectedStats.plusMinus += gamePred.plusMinus || 0;
+            team1ProjectedStats.pim += gamePred.pim || 0;
+            team1ProjectedStats.powerPlayPoints += gamePred.powerPlayPoints || 0;
+            team1ProjectedStats.shotsOnGoal += gamePred.shotsOnGoal || 0;
+            team1ProjectedStats.hits += gamePred.hits || 0;
+            team1ProjectedStats.blockedShots += gamePred.blocks || 0;
+            
+            // Aggregate goalie stats
+            if (player.position === 'G') {
+              team1ProjectedStats.wins += gamePred.wins || 0;
+              team1ProjectedStats.shutouts += gamePred.shutouts || 0;
+              team1ProjectedStats.saves += gamePred.saves || 0;
+              team1ProjectedStats.goalsAgainst += gamePred.goalsAgainst || 0;
+            }
+          }
+        }
+      }
+    }
+
+    // Team 2 players
+    for (const player of baseAnalysis.team2.playerBreakdown) {
+      if (player.games && player.games.length > 0) {
+        for (const game of player.games) {
+          const key = `${player.playerId}-${game.date}`;
+          const gamePred = predictionMap.get(key);
+          
+          if (gamePred) {
+            // Aggregate skater stats
+            team2ProjectedStats.goals += gamePred.goals || 0;
+            team2ProjectedStats.assists += gamePred.assists || 0;
+            team2ProjectedStats.points += gamePred.points || 0;
+            team2ProjectedStats.plusMinus += gamePred.plusMinus || 0;
+            team2ProjectedStats.pim += gamePred.pim || 0;
+            team2ProjectedStats.powerPlayPoints += gamePred.powerPlayPoints || 0;
+            team2ProjectedStats.shotsOnGoal += gamePred.shotsOnGoal || 0;
+            team2ProjectedStats.hits += gamePred.hits || 0;
+            team2ProjectedStats.blockedShots += gamePred.blocks || 0;
+            
+            // Aggregate goalie stats
+            if (player.position === 'G') {
+              team2ProjectedStats.wins += gamePred.wins || 0;
+              team2ProjectedStats.shutouts += gamePred.shutouts || 0;
+              team2ProjectedStats.saves += gamePred.saves || 0;
+              team2ProjectedStats.goalsAgainst += gamePred.goalsAgainst || 0;
+            }
+          }
+        }
+      }
+    }
+
+    // Calculate goalie averages for team projections
+    const team1GoalieGames = baseAnalysis.team1.playerBreakdown
+      .filter(p => p.position === 'G' && p.gamesCount > 0)
+      .reduce((sum, p) => sum + p.gamesCount, 0);
+    const team2GoalieGames = baseAnalysis.team2.playerBreakdown
+      .filter(p => p.position === 'G' && p.gamesCount > 0)
+      .reduce((sum, p) => sum + p.gamesCount, 0);
+
+    if (team1GoalieGames > 0) {
+      team1ProjectedStats.gaa = team1ProjectedStats.goalsAgainst / team1GoalieGames;
+      const totalShots = team1ProjectedStats.saves + team1ProjectedStats.goalsAgainst;
+      team1ProjectedStats.savePct = totalShots > 0 ? (team1ProjectedStats.saves / totalShots) * 100 : 0;
+    }
+
+    if (team2GoalieGames > 0) {
+      team2ProjectedStats.gaa = team2ProjectedStats.goalsAgainst / team2GoalieGames;
+      const totalShots = team2ProjectedStats.saves + team2ProjectedStats.goalsAgainst;
+      team2ProjectedStats.savePct = totalShots > 0 ? (team2ProjectedStats.saves / totalShots) * 100 : 0;
+    }
+
+    // Calculate projected category wins
+    let team1Wins = 0;
+    let team2Wins = 0;
+
+    // Skater stats (higher is better)
+    if (team1ProjectedStats.goals > team2ProjectedStats.goals) team1Wins++;
+    else if (team2ProjectedStats.goals > team1ProjectedStats.goals) team2Wins++;
+
+    if (team1ProjectedStats.assists > team2ProjectedStats.assists) team1Wins++;
+    else if (team2ProjectedStats.assists > team1ProjectedStats.assists) team2Wins++;
+
+    if (team1ProjectedStats.points > team2ProjectedStats.points) team1Wins++;
+    else if (team2ProjectedStats.points > team1ProjectedStats.points) team2Wins++;
+
+    if (team1ProjectedStats.plusMinus > team2ProjectedStats.plusMinus) team1Wins++;
+    else if (team2ProjectedStats.plusMinus > team1ProjectedStats.plusMinus) team2Wins++;
+
+    if (team1ProjectedStats.pim > team2ProjectedStats.pim) team1Wins++;
+    else if (team2ProjectedStats.pim > team1ProjectedStats.pim) team2Wins++;
+
+    if (team1ProjectedStats.powerPlayPoints > team2ProjectedStats.powerPlayPoints) team1Wins++;
+    else if (team2ProjectedStats.powerPlayPoints > team1ProjectedStats.powerPlayPoints) team2Wins++;
+
+    if (team1ProjectedStats.shotsOnGoal > team2ProjectedStats.shotsOnGoal) team1Wins++;
+    else if (team2ProjectedStats.shotsOnGoal > team1ProjectedStats.shotsOnGoal) team2Wins++;
+
+    if (team1ProjectedStats.hits > team2ProjectedStats.hits) team1Wins++;
+    else if (team2ProjectedStats.hits > team1ProjectedStats.hits) team2Wins++;
+
+    if (team1ProjectedStats.blockedShots > team2ProjectedStats.blockedShots) team1Wins++;
+    else if (team2ProjectedStats.blockedShots > team1ProjectedStats.blockedShots) team2Wins++;
+
+    // Goalie stats
+    if (team1ProjectedStats.wins > team2ProjectedStats.wins) team1Wins++;
+    else if (team2ProjectedStats.wins > team1ProjectedStats.wins) team2Wins++;
+
+    if (team1ProjectedStats.shutouts > team2ProjectedStats.shutouts) team1Wins++;
+    else if (team2ProjectedStats.shutouts > team1ProjectedStats.shutouts) team2Wins++;
+
+    if (team1ProjectedStats.savePct > team2ProjectedStats.savePct) team1Wins++;
+    else if (team2ProjectedStats.savePct > team1ProjectedStats.savePct) team2Wins++;
+
+    // GAA (lower is better)
+    if (team1ProjectedStats.gaa > 0 && team2ProjectedStats.gaa > 0) {
+      if (team1ProjectedStats.gaa < team2ProjectedStats.gaa) team1Wins++;
+      else if (team2ProjectedStats.gaa < team1ProjectedStats.gaa) team2Wins++;
+    }
+
+    console.log(`[Matchup Projections] Calculated projections - Team1 wins: ${team1Wins}, Team2 wins: ${team2Wins}`);
+    
+    return {
+      ...baseAnalysis,
+      projections: {
+        team1: team1ProjectedStats,
+        team2: team2ProjectedStats,
+        categoryWins: {
+          team1: team1Wins,
+          team2: team2Wins,
+        },
+      },
+    };
+  } catch (error: any) {
+    console.error('[Matchup Projections] Error fetching projections:', error);
+    // Return base analysis without projections if error occurs
+    return baseAnalysis;
   }
 }
 

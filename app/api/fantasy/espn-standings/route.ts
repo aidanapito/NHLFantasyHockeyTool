@@ -69,23 +69,22 @@ export async function GET(request: NextRequest) {
     const storageState = JSON.parse(fs.readFileSync(STORAGE_PATH, 'utf-8'));
 
     // Launch browser - try different modes for macOS compatibility
-    // macOS often blocks headless browsers, especially headless-shell
-    // Try regular chromium first (most stable on macOS)
+    // Try headless mode first (preferred for server environments)
+    // Then fallback to headed if headless fails
     let browser
     let browserLaunched = false
     
-    // Strategy: Try headed mode first (most compatible with macOS)
-    // Then fallback to headless if headed fails
+    // Strategy: Try headless mode first (preferred), then fallback to headed if needed
     const launchOptions = [
-      {
-        headless: false,
-        name: 'headed mode',
-        args: ['--no-sandbox', '--disable-setuid-sandbox'] // Helpful for macOS
-      },
       {
         headless: true,
         name: 'headless mode',
         args: ['--no-sandbox', '--disable-setuid-sandbox']
+      },
+      {
+        headless: false,
+        name: 'headed mode',
+        args: ['--no-sandbox', '--disable-setuid-sandbox'] // Helpful for macOS
       }
     ]
 

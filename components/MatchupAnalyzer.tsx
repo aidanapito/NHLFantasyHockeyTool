@@ -63,6 +63,14 @@ interface MatchupComparison {
     team: string
     gamesDifference: number
   }
+  projections?: {
+    team1: TeamStats
+    team2: TeamStats
+    categoryWins: {
+      team1: number
+      team2: number
+    }
+  }
 }
 
 interface TeamReference {
@@ -239,13 +247,47 @@ export default function MatchupAnalyzer() {
           projections: showProjections,
         }),
       })
+      
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.message || 'Failed to analyze matchup')
+        const contentType = response.headers.get('content-type')
+        let errorMessage = 'Failed to analyze matchup'
+        
+        try {
+          if (contentType?.includes('application/json')) {
+            const errorData = await response.json()
+            errorMessage = errorData.message || errorData.error || errorMessage
+          } else {
+            const errorText = await response.text()
+            // If we got HTML, try to extract useful info
+            if (errorText.includes('<!DOCTYPE')) {
+              errorMessage = 'Server returned an error page. Check server logs for details.'
+            } else {
+              errorMessage = errorText.substring(0, 200)
+            }
+          }
+        } catch (e) {
+          errorMessage = `HTTP ${response.status}: ${response.statusText}`
+        }
+        
+        throw new Error(errorMessage)
+      }
+
+      const contentType = response.headers.get('content-type')
+      if (!contentType?.includes('application/json')) {
+        const text = await response.text()
+        throw new Error(`Expected JSON but got ${contentType}. Response: ${text.substring(0, 200)}`)
       }
 
       const result = await response.json()
       let analysisData = result.data
+
+      // Log projections data for debugging
+      if (showProjections) {
+        console.log('[Matchup Analyzer] Projections requested, received data:', {
+          hasProjections: !!analysisData.projections,
+          projections: analysisData.projections,
+        })
+      }
 
       // Direct mapping of full team names to abbreviations
       const teamNameToAbbrev: Record<string, string> = {

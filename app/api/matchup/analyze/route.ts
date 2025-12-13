@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { analyzeWeeklyMatchup, type TeamReference } from '@/lib/matchup-analyzer';
+import { analyzeWeeklyMatchup, analyzeWeeklyMatchupWithProjections, type TeamReference } from '@/lib/matchup-analyzer';
 
 export const dynamic = 'force-dynamic';
 
@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { team1, team2, weekStartDate } = body;
+    const { team1, team2, weekStartDate, leagueId, season, projections } = body;
 
     if (!team1 || !team2) {
       return NextResponse.json(
@@ -91,12 +91,40 @@ export async function POST(request: NextRequest) {
     // Parse week start date if provided
     const weekStart = weekStartDate ? new Date(weekStartDate) : undefined;
 
-    // Analyze the matchup
-    const analysis = await analyzeWeeklyMatchup(
-      team1 as TeamReference,
-      team2 as TeamReference,
-      weekStart
-    );
+    // Fetch ESPN standings data if leagueId is provided
+    let standingsData: any[] = []
+    if (leagueId) {
+      const params = new URLSearchParams({ leagueId })
+      if (season) {
+        params.set('season', season)
+      }
+      try {
+        const url = `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/fantasy/espn-standings?${params.toString()}`
+        const response = await fetch(url, { cache: 'no-store' })
+        if (response.ok) {
+          const data = await response.json()
+          standingsData = data.standings || data.results || []
+        }
+      } catch (err) {
+        console.error('[Matchup API] Error fetching standings:', err)
+      }
+    }
+
+    // Analyze the matchup (with or without projections)
+    const useProjections = projections === true || projections === 'true';
+    const analysis = useProjections
+      ? await analyzeWeeklyMatchupWithProjections(
+          team1 as TeamReference,
+          team2 as TeamReference,
+          weekStart,
+          standingsData
+        )
+      : await analyzeWeeklyMatchup(
+          team1 as TeamReference,
+          team2 as TeamReference,
+          weekStart,
+          standingsData
+        );
 
     return NextResponse.json({
       success: true,

@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 import * as path from 'path';
 
+// Ensure this route is only executed at runtime, not during build
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 /**
  * POST /api/ml-projections/matchup
  * 
@@ -20,7 +24,17 @@ import * as path from 'path';
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    let body;
+    try {
+      body = await request.json();
+    } catch (parseError: any) {
+      console.error('[Batch Prediction API] Failed to parse request body:', parseError);
+      return NextResponse.json(
+        { error: 'Invalid JSON in request body', details: parseError.message },
+        { status: 400 }
+      );
+    }
+    
     const { predictions } = body;
 
     if (!predictions || !Array.isArray(predictions) || predictions.length === 0) {
@@ -78,21 +92,25 @@ export async function POST(request: NextRequest) {
     // Find Python executable
     const pythonCmd = process.env.PYTHON_CMD || 'python3';
     
-    // Get the project root (3 levels up from this file: app/api/ml-projections/matchup)
+    // Get the project root
     const projectRoot = path.resolve(process.cwd());
     
     // Path to the Python module
     const pythonModule = 'analytics-service.modeling.batch_predict';
 
     console.log(`[Batch Prediction API] Executing Python batch prediction for ${predictions.length} predictions`);
+    console.log(`[Batch Prediction API] Python command: ${pythonCmd}`);
+    console.log(`[Batch Prediction API] Project root: ${projectRoot}`);
+    console.log(`[Batch Prediction API] Python module: ${pythonModule}`);
 
-    // Spawn Python process
+    // Spawn Python process with timeout
     const pythonProcess = spawn(pythonCmd, ['-m', pythonModule], {
       cwd: projectRoot,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {
         ...process.env,
         PYTHONPATH: projectRoot,
+        PYTHONUNBUFFERED: '1', // Ensure output is not buffered
       },
     });
 
@@ -112,23 +130,69 @@ export async function POST(request: NextRequest) {
       stderr += data.toString();
     });
 
-    // Wait for process to complete
-    const exitCode = await new Promise<number>((resolve) => {
-      pythonProcess.on('close', (code) => {
-        resolve(code || 0);
-      });
-    });
+    // Wait for process to complete with timeout
+    const exitCode = await Promise.race<number>([
+      new Promise<number>((resolve) => {
+        pythonProcess.on('close', (code) => {
+          resolve(code || 0);
+        });
+      }),
+      new Promise<number>((resolve) => {
+        setTimeout(() => {
+          pythonProcess.kill();
+          resolve(-1); // Timeout exit code
+        }, 60000); // 60 second timeout
+      }),
+    ]);
+
+    // Check if we got any output at all
+    if (!stdout || stdout.trim().length === 0) {
+      console.error(`[Batch Prediction API] No output from Python process`);
+      console.error(`[Batch Prediction API] Exit code: ${exitCode}`);
+      console.error(`[Batch Prediction API] stderr: ${stderr}`);
+      return NextResponse.json(
+        {
+          error: 'No output from prediction script',
+          details: stderr || 'Python process produced no output',
+        },
+        { status: 500 }
+      );
+    }
+
+    if (exitCode === -1) {
+      console.error(`[Batch Prediction API] Python process timed out`);
+      return NextResponse.json(
+        {
+          error: 'Prediction timed out',
+          details: 'The prediction process took too long to complete',
+        },
+        { status: 500 }
+      );
+    }
 
     if (exitCode !== 0) {
       console.error(`[Batch Prediction API] Python process exited with code ${exitCode}`);
       console.error(`[Batch Prediction API] stderr: ${stderr}`);
-      return NextResponse.json(
-        {
-          error: 'Prediction failed',
-          details: stderr || 'Unknown error',
-        },
-        { status: 500 }
-      );
+      console.error(`[Batch Prediction API] stdout (first 1000 chars): ${stdout.substring(0, 1000)}`);
+      
+      // Try to parse stdout as JSON even if exit code is non-zero
+      // (the script might have output JSON before failing)
+      try {
+        const errorOutput = JSON.parse(stdout);
+        return NextResponse.json({
+          predictions: errorOutput.predictions || [],
+          errors: errorOutput.errors || [stderr || 'Unknown error'],
+        });
+      } catch (e) {
+        // stdout is not JSON, return error
+        return NextResponse.json(
+          {
+            error: 'Prediction failed',
+            details: stderr || stdout.substring(0, 500) || 'Unknown error',
+          },
+          { status: 500 }
+        );
+      }
     }
 
     // Parse Python output

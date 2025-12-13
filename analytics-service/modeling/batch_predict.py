@@ -49,14 +49,43 @@ def main():
         predictions_requests = input_data.get("predictions", [])
         
         if not predictions_requests:
-            print(json.dumps({"predictions": [], "errors": ["No prediction requests provided"]}))
-            sys.exit(1)
-        
-        # Load model once (cached for efficiency)
-        cfg = default_experiment_config()
+            output = {"predictions": [], "errors": ["No prediction requests provided"]}
+            print(json.dumps(output))
+            sys.exit(0)  # Exit with 0, return empty results
         
         results = []
         errors = []
+        
+        # Load model once (cached for efficiency)
+        # Wrap in try-catch to handle import errors, missing files, etc.
+        try:
+            cfg = default_experiment_config()
+        except ImportError as e:
+            output = {
+                "predictions": [],
+                "errors": [f"Import error - missing dependency: {str(e)}"]
+            }
+            print(json.dumps(output))
+            sys.stdout.flush()
+            sys.exit(0)
+        except FileNotFoundError as e:
+            output = {
+                "predictions": [],
+                "errors": [f"Model file not found: {str(e)}. Please train the model first."]
+            }
+            print(json.dumps(output))
+            sys.stdout.flush()
+            sys.exit(0)
+        except Exception as e:
+            import traceback
+            output = {
+                "predictions": [],
+                "errors": [f"Failed to initialize model/config: {str(e)}"]
+            }
+            print(json.dumps(output))
+            print(f"Traceback: {traceback.format_exc()}", file=sys.stderr)
+            sys.stdout.flush()
+            sys.exit(0)
         
         for idx, req in enumerate(predictions_requests):
             try:
@@ -118,32 +147,43 @@ def main():
                     "error": str(e)
                 })
             except Exception as e:
+                import traceback
+                error_msg = f"Prediction failed: {str(e)}"
                 errors.append({
                     "index": idx,
                     "player_id": req.get("player_id", "unknown"),
-                    "error": f"Prediction failed: {str(e)}"
+                    "error": error_msg
                 })
+                # Print traceback to stderr for debugging
+                print(f"Error for player {req.get('player_id', 'unknown')}: {traceback.format_exc()}", file=sys.stderr)
         
-        # Output results
+        # Output results (always valid JSON)
         output = {
             "predictions": results,
             "errors": errors
         }
         
-        print(json.dumps(output, indent=2))
+        print(json.dumps(output))
+        sys.stdout.flush()  # Ensure output is flushed
         
     except json.JSONDecodeError as e:
-        print(json.dumps({
+        output = {
             "predictions": [],
             "errors": [f"Invalid JSON input: {str(e)}"]
-        }))
-        sys.exit(1)
+        }
+        print(json.dumps(output))
+        sys.stdout.flush()
+        sys.exit(0)  # Exit with 0, return error in JSON
     except Exception as e:
-        print(json.dumps({
+        import traceback
+        output = {
             "predictions": [],
             "errors": [f"Unexpected error: {str(e)}"]
-        }))
-        sys.exit(1)
+        }
+        print(json.dumps(output))
+        print(f"Traceback: {traceback.format_exc()}", file=sys.stderr)
+        sys.stdout.flush()
+        sys.exit(0)  # Exit with 0, return error in JSON
 
 
 if __name__ == "__main__":

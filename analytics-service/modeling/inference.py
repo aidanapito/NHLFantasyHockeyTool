@@ -150,8 +150,7 @@ def predict_game_for_player(
     
     cfg = cfg or default_experiment_config()
     
-    # Validate game_date is in the future (or at least not in the past)
-    today = datetime.now().date()
+    # Validate game_date format (allow past dates for testing/backtesting)
     if isinstance(game_date, datetime):
         game_date_obj = game_date.date()
     elif isinstance(game_date, date):
@@ -159,8 +158,10 @@ def predict_game_for_player(
     else:
         game_date_obj = pd.to_datetime(game_date).date()
     
+    # Warn but don't fail for past dates (useful for testing/backtesting)
+    today = datetime.now().date()
     if game_date_obj < today:
-        raise ValueError(f"game_date {game_date_obj} is in the past. Predictions require a future date.")
+        print(f"Warning: game_date {game_date_obj} is in the past. Proceeding with prediction anyway.")
     
     # Load model (should be cached in production)
     loaded = load_latest_model(cfg)
