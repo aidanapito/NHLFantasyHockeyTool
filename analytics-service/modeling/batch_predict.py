@@ -56,10 +56,16 @@ def main():
         results = []
         errors = []
         
-        # Load model once (cached for efficiency)
+        # Load model and config once (cached for efficiency)
         # Wrap in try-catch to handle import errors, missing files, etc.
+        loaded_model = None
+        cfg = None
         try:
             cfg = default_experiment_config()
+            # Pre-load the model once for all predictions
+            from .inference import load_latest_model
+            loaded_model = load_latest_model(cfg)
+            print(f"Model loaded successfully for batch prediction", file=sys.stderr)
         except ImportError as e:
             output = {
                 "predictions": [],
@@ -114,15 +120,40 @@ def main():
                         })
                         continue
                 
-                # Make prediction
-                predicted_stats = predict_game_for_player(
-                    player_id=player_id,
-                    game_date=game_date,
-                    opponent_team=opponent_team,
-                    player_team=player_team,
-                    is_home=is_home,
-                    cfg=cfg
-                )
+                # Make prediction (pass pre-loaded model if available)
+                if loaded_model:
+                    # Use the pre-loaded model for faster predictions
+                    from .inference import predict_game_for_player_with_model
+                    try:
+                        predicted_stats = predict_game_for_player_with_model(
+                            player_id=player_id,
+                            game_date=game_date,
+                            opponent_team=opponent_team,
+                            player_team=player_team,
+                            is_home=is_home,
+                            loaded_model=loaded_model,
+                            cfg=cfg
+                        )
+                    except AttributeError:
+                        # Fallback to regular function if new function doesn't exist
+                        predicted_stats = predict_game_for_player(
+                            player_id=player_id,
+                            game_date=game_date,
+                            opponent_team=opponent_team,
+                            player_team=player_team,
+                            is_home=is_home,
+                            cfg=cfg
+                        )
+                else:
+                    # Fallback: load model for each prediction (slow)
+                    predicted_stats = predict_game_for_player(
+                        player_id=player_id,
+                        game_date=game_date,
+                        opponent_team=opponent_team,
+                        player_team=player_team,
+                        is_home=is_home,
+                        cfg=cfg
+                    )
                 
                 # Format result
                 results.append({

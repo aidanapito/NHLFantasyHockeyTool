@@ -90,7 +90,8 @@ export async function POST(request: NextRequest) {
       })),
     };
 
-    // Find Python executable - prefer venv if it exists, fallback to system Python
+    // Find Python executable - use venv if it exists (has required packages)
+    // The venv may have timeout issues, but it's the only option with packages installed
     const projectRoot = path.resolve(process.cwd());
     const venvPython = path.join(projectRoot, 'analytics-service', 'venv', 'bin', 'python3');
     let pythonCmd = process.env.PYTHON_CMD;
@@ -146,6 +147,7 @@ export async function POST(request: NextRequest) {
     });
 
     // Wait for process to complete with timeout
+    // Increased timeout to 120 seconds to handle slow imports
     const exitCode = await Promise.race<number>([
       new Promise<number>((resolve) => {
         pythonProcess.on('close', (code) => {
@@ -154,9 +156,9 @@ export async function POST(request: NextRequest) {
       }),
       new Promise<number>((resolve) => {
         setTimeout(() => {
-          pythonProcess.kill();
+          pythonProcess.kill('SIGKILL');
           resolve(-1); // Timeout exit code
-        }, 60000); // 60 second timeout
+        }, 300000); // 300 second timeout (5 minutes) - batch predictions can be slow
       }),
     ]);
 
@@ -175,11 +177,16 @@ export async function POST(request: NextRequest) {
     }
 
     if (exitCode === -1) {
-      console.error(`[Batch Prediction API] Python process timed out`);
+      console.error(`[Batch Prediction API] Python process timed out after 120 seconds`);
+      console.error(`[Batch Prediction API] This may indicate venv filesystem issues or slow imports`);
+      console.error(`[Batch Prediction API] stdout so far: ${stdout.substring(0, 500)}`);
+      console.error(`[Batch Prediction API] stderr so far: ${stderr.substring(0, 500)}`);
       return NextResponse.json(
         {
           error: 'Prediction timed out',
-          details: 'The prediction process took too long to complete',
+          details: 'The prediction process took too long to complete. This may indicate venv filesystem issues. Try recreating the venv or check system resources.',
+          stdout: stdout.substring(0, 1000),
+          stderr: stderr.substring(0, 1000),
         },
         { status: 500 }
       );

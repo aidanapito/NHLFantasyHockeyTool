@@ -1069,40 +1069,82 @@ export async function analyzeWeeklyMatchupWithProjections(
     isHome: boolean;
   }> = [];
 
-  // Collect games for team1 players
+  // Filter to only future games (games >= weekStartDate if provided, otherwise >= today)
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  let cutoffDate: Date;
+  if (weekStartDate) {
+    cutoffDate = new Date(weekStartDate);
+    cutoffDate.setHours(0, 0, 0, 0);
+    // Don't filter out games that are in the past relative to today if weekStartDate is provided
+    // We want to predict all games in the selected week
+  } else {
+    cutoffDate = today;
+  }
+  
+  console.log(`[Matchup Projections] Date filtering - today: ${today.toISOString().split('T')[0]}, weekStart: ${weekStartDate ? new Date(weekStartDate).toISOString().split('T')[0] : 'not provided'}, cutoff: ${cutoffDate.toISOString().split('T')[0]}`);
+
+  // Collect games for team1 players (only future games)
+  let totalGamesBeforeFilter = 0;
   for (const player of baseAnalysis.team1.playerBreakdown) {
     if (player.games && player.games.length > 0 && player.nhlTeam) {
+      totalGamesBeforeFilter += player.games.length;
       for (const game of player.games) {
-        predictionRequests.push({
-          playerId: player.playerId,
-          gameDate: game.date,
-          opponentTeam: game.opponent,
-          playerTeam: player.nhlTeam,
-          isHome: game.isHome,
-        });
+        const gameDate = new Date(game.date + 'T00:00:00');
+        gameDate.setHours(0, 0, 0, 0);
+        // Only include games on or after the cutoff date
+        if (gameDate >= cutoffDate) {
+          predictionRequests.push({
+            playerId: player.playerId,
+            gameDate: game.date,
+            opponentTeam: game.opponent,
+            playerTeam: player.nhlTeam,
+            isHome: game.isHome,
+          });
+        }
       }
     }
   }
+  
+  for (const player of baseAnalysis.team2.playerBreakdown) {
+    if (player.games && player.games.length > 0 && player.nhlTeam) {
+      totalGamesBeforeFilter += player.games.length;
+    }
+  }
+  
+  console.log(`[Matchup Projections] Total games before filtering: ${totalGamesBeforeFilter}, After filtering: ${predictionRequests.length}`);
 
-  // Collect games for team2 players
+  // Collect games for team2 players (only future games)
   for (const player of baseAnalysis.team2.playerBreakdown) {
     if (player.games && player.games.length > 0 && player.nhlTeam) {
       for (const game of player.games) {
-        predictionRequests.push({
-          playerId: player.playerId,
-          gameDate: game.date,
-          opponentTeam: game.opponent,
-          playerTeam: player.nhlTeam,
-          isHome: game.isHome,
-        });
+        const gameDate = new Date(game.date + 'T00:00:00');
+        gameDate.setHours(0, 0, 0, 0);
+        // Only include games on or after the cutoff date
+        if (gameDate >= cutoffDate) {
+          predictionRequests.push({
+            playerId: player.playerId,
+            gameDate: game.date,
+            opponentTeam: game.opponent,
+            playerTeam: player.nhlTeam,
+            isHome: game.isHome,
+          });
+        } else {
+          console.log(`[Matchup Projections] Filtered out past game: ${game.date} (cutoff: ${cutoffDate.toISOString().split('T')[0]})`);
+        }
       }
     }
   }
 
   // If no games to predict, return base analysis without projections
   if (predictionRequests.length === 0) {
+    console.warn(`[Matchup Projections] No future games found to predict. Cutoff date: ${cutoffDate.toISOString().split('T')[0]}`);
+    console.warn(`[Matchup Projections] Team1 players: ${baseAnalysis.team1.playerBreakdown.length}, Team2 players: ${baseAnalysis.team2.playerBreakdown.length}`);
     return baseAnalysis;
   }
+  
+  console.log(`[Matchup Projections] Filtered to ${predictionRequests.length} future games (cutoff: ${cutoffDate.toISOString().split('T')[0]})`);
 
   // Call batch prediction API
   let team1ProjectedStats: TeamStats = {
