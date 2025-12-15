@@ -1254,19 +1254,32 @@ export async function analyzeWeeklyMatchupWithProjections(
 
     // Create a map of player-game predictions
     const predictionMap = new Map<string, any>();
+    let emptyStatsCount = 0;
+    let nonZeroStatsCount = 0;
     for (const pred of predictions) {
       const key = `${pred.playerId}-${pred.gameDate}`;
       const stats = pred.stats || {};
       predictionMap.set(key, stats);
-      if (Object.keys(stats).length === 0) {
-        console.warn(`[Matchup Projections] Empty stats for ${key}`);
+      
+      // Check if stats are all zeros
+      const hasNonZero = Object.values(stats).some((v: any) => typeof v === 'number' && v !== 0);
+      if (hasNonZero) {
+        nonZeroStatsCount++;
+      } else {
+        emptyStatsCount++;
+        if (emptyStatsCount <= 5) { // Only log first 5 to avoid spam
+          console.warn(`[Matchup Projections] All-zero stats for player ${pred.playerId} on ${pred.gameDate}`);
+        }
       }
     }
     
     console.log(`[Matchup Projections] Created prediction map with ${predictionMap.size} entries`);
+    console.log(`[Matchup Projections] Non-zero predictions: ${nonZeroStatsCount}, Zero predictions: ${emptyStatsCount}`);
 
     // Aggregate projections per player, then per team
     // Team 1 players
+    let team1PredCount = 0;
+    let team1ZeroCount = 0;
     for (const player of baseAnalysis.team1.playerBreakdown) {
       if (player.games && player.games.length > 0) {
         for (const game of player.games) {
@@ -1274,6 +1287,9 @@ export async function analyzeWeeklyMatchupWithProjections(
           const gamePred = predictionMap.get(key);
           
           if (gamePred) {
+            team1PredCount++;
+            const hasNonZero = Object.values(gamePred).some((v: any) => typeof v === 'number' && v !== 0);
+            if (!hasNonZero) team1ZeroCount++;
             // Aggregate skater stats
             team1ProjectedStats.goals += gamePred.goals || 0;
             team1ProjectedStats.assists += gamePred.assists || 0;
@@ -1298,6 +1314,8 @@ export async function analyzeWeeklyMatchupWithProjections(
     }
 
     // Team 2 players
+    let team2PredCount = 0;
+    let team2ZeroCount = 0;
     for (const player of baseAnalysis.team2.playerBreakdown) {
       if (player.games && player.games.length > 0) {
         for (const game of player.games) {
@@ -1305,6 +1323,9 @@ export async function analyzeWeeklyMatchupWithProjections(
           const gamePred = predictionMap.get(key);
           
           if (gamePred) {
+            team2PredCount++;
+            const hasNonZero = Object.values(gamePred).some((v: any) => typeof v === 'number' && v !== 0);
+            if (!hasNonZero) team2ZeroCount++;
             // Aggregate skater stats
             team2ProjectedStats.goals += gamePred.goals || 0;
             team2ProjectedStats.assists += gamePred.assists || 0;
@@ -1397,6 +1418,18 @@ export async function analyzeWeeklyMatchupWithProjections(
     }
 
     console.log(`[Matchup Projections] Calculated projections - Team1 wins: ${team1Wins}, Team2 wins: ${team2Wins}`);
+    console.log(`[Matchup Projections] Team1 predictions: ${team1PredCount} total, ${team1ZeroCount} zeros`);
+    console.log(`[Matchup Projections] Team2 predictions: ${team2PredCount} total, ${team2ZeroCount} zeros`);
+    console.log(`[Matchup Projections] Sample Team1 stats:`, {
+      goals: team1ProjectedStats.goals,
+      assists: team1ProjectedStats.assists,
+      points: team1ProjectedStats.points,
+    });
+    console.log(`[Matchup Projections] Sample Team2 stats:`, {
+      goals: team2ProjectedStats.goals,
+      assists: team2ProjectedStats.assists,
+      points: team2ProjectedStats.points,
+    });
     
     return {
       ...baseAnalysis,

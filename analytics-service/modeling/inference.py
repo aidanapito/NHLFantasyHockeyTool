@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -297,6 +298,7 @@ def predict_game_for_player_with_model(
     
     if player_rows.empty:
         # Player has no historical data - return zeros/defaults
+        print(f"Warning: Player {player_id} not found in dataset. Available player IDs: {features['player_id'].unique()[:10] if len(features) > 0 else 'none'}", file=sys.stderr)
         return {name: 0.0 for name in loaded_model.target_names}
     
     # Convert game_date to datetime for comparison
@@ -306,6 +308,7 @@ def predict_game_for_player_with_model(
     
     if historical_rows.empty:
         # No historical games before this date - return zeros/defaults
+        print(f"Warning: Player {player_id} has no games before {game_date_obj}. Total games: {len(player_rows)}", file=sys.stderr)
         return {name: 0.0 for name in loaded_model.target_names}
     
     # Get the most recent historical game's features (this contains rolling stats)
