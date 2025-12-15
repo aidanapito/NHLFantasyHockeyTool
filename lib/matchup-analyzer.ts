@@ -1060,6 +1060,42 @@ export async function analyzeWeeklyMatchupWithProjections(
     standingsData
   );
 
+  // Build mapping from NHL IDs (used in matchup analysis) to internal DB player IDs (used in ML dataset)
+  const allNhlIds = Array.from(
+    new Set([
+      ...baseAnalysis.team1.playerBreakdown.map(p => p.playerId).filter((id): id is number => !!id),
+      ...baseAnalysis.team2.playerBreakdown.map(p => p.playerId).filter((id): id is number => !!id),
+    ]),
+  );
+
+  let nhlIdToDbId = new Map<number, number>();
+  if (allNhlIds.length > 0) {
+    try {
+      const dbPlayers = await prisma.player.findMany({
+        where: {
+          nhlId: { in: allNhlIds },
+        },
+        select: {
+          id: true,
+          nhlId: true,
+        },
+      });
+
+      nhlIdToDbId = new Map(dbPlayers.map(p => [p.nhlId, p.id]));
+
+      console.log('[Matchup Projections] NHL->DB ID map:', {
+        totalNhlIds: allNhlIds.length,
+        mapped: nhlIdToDbId.size,
+        sample: allNhlIds.slice(0, 5).map(id => ({
+          nhlId: id,
+          dbId: nhlIdToDbId.get(id),
+        })),
+      });
+    } catch (e) {
+      console.error('[Matchup Projections] Failed to build NHL->DB ID map:', e);
+    }
+  }
+
   // Prepare prediction requests for all player games in the week
   const predictionRequests: Array<{
     playerId: number;
@@ -1090,13 +1126,19 @@ export async function analyzeWeeklyMatchupWithProjections(
   for (const player of baseAnalysis.team1.playerBreakdown) {
     if (player.games && player.games.length > 0 && player.nhlTeam) {
       totalGamesBeforeFilter += player.games.length;
+      const nhlId = player.playerId;
+      const dbId = nhlIdToDbId.get(nhlId);
+      if (!dbId) {
+        console.warn(`[Matchup Projections] No DB player.id for nhlId=${nhlId} (team1), skipping predictions for this player`);
+        continue;
+      }
       for (const game of player.games) {
         const gameDate = new Date(game.date + 'T00:00:00');
         gameDate.setHours(0, 0, 0, 0);
         // Only include games on or after the cutoff date
         if (gameDate >= cutoffDate) {
           predictionRequests.push({
-            playerId: player.playerId,
+            playerId: dbId,
             gameDate: game.date,
             opponentTeam: game.opponent,
             playerTeam: player.nhlTeam,
@@ -1110,6 +1152,26 @@ export async function analyzeWeeklyMatchupWithProjections(
   for (const player of baseAnalysis.team2.playerBreakdown) {
     if (player.games && player.games.length > 0 && player.nhlTeam) {
       totalGamesBeforeFilter += player.games.length;
+      const nhlId = player.playerId;
+      const dbId = nhlIdToDbId.get(nhlId);
+      if (!dbId) {
+        console.warn(`[Matchup Projections] No DB player.id for nhlId=${nhlId} (team2), skipping predictions for this player`);
+        continue;
+      }
+      for (const game of player.games) {
+        const gameDate = new Date(game.date + 'T00:00:00');
+        gameDate.setHours(0, 0, 0, 0);
+        // Only include games on or after the cutoff date
+        if (gameDate >= cutoffDate) {
+          predictionRequests.push({
+            playerId: dbId,
+            gameDate: game.date,
+            opponentTeam: game.opponent,
+            playerTeam: player.nhlTeam,
+            isHome: game.isHome,
+          });
+        }
+      }
     }
   }
   
