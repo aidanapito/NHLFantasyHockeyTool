@@ -331,62 +331,120 @@ def predict_game_for_player_with_model(
     # Calculate days_since_season_start for the future game
     future_row["season_start"] = future_row["game_date"].dt.to_period("Y").dt.start_time
     future_row["days_since_season_start"] = (future_row["game_date"] - future_row["season_start"]).dt.days
+    future_row["day_of_week"] = future_row["game_date"].dt.weekday
     
-    # Encode features using pre-loaded encoders
-    dataset = PlayerGameDataset(
-        future_row[["player_id", "game_date", "opponent_team", "is_home", "team"] + [c for c in future_row.columns if c not in ["player_id", "game_date", "opponent_team", "is_home", "team", "game_date_dt", "season_start"] and c in ftables.features.columns]],
-        pd.DataFrame(),  # Empty targets for prediction
-        loaded_model.encoders,
-        loaded_model.target_names
-    )
+    # Drop helper columns that shouldn't be in features
+    future_row = future_row.drop(columns=["game_date_dt", "season_start"], errors="ignore")
     
-    # Make prediction
-    with torch.no_grad():
+    # Ensure position column exists (required for categorical encoding)
+    # Position should already be in future_row from the merge, but check just in case
+    if "position" not in future_row.columns:
+        # Try to get position from the base dataset players
+        if hasattr(base, 'players'):
+            players_df = base.players
+            player_info = players_df[players_df["id"] == player_id] if "id" in players_df.columns else pd.DataFrame()
+            if not player_info.empty and "position" in player_info.columns:
+                position = player_info["position"].iloc[0]
+                future_row["position"] = position
+            else:
+                # Default to center if we can't find it
+                print(f"Warning: Could not find position for player {player_id}, defaulting to 'C'", file=sys.stderr)
+                future_row["position"] = "C"
+        else:
+            print(f"Warning: Could not find position for player {player_id}, defaulting to 'C'", file=sys.stderr)
+            future_row["position"] = "C"
+    
+    # Create a dummy targets row (filled with zeros, won't be used for prediction)
+    # Ensure we have all required target columns
+    if not loaded_model.target_names:
+        print(f"Warning: loaded_model.target_names is empty! Using default target names.", file=sys.stderr)
+        default_targets = ["goals", "assists", "points", "shots", "shotsOnGoal", "hits", "blocks", "powerPlayPoints", "plusMinus", "pim", "timeOnIceSeconds", "wins", "saves", "shotsAgainst", "goalsAgainst", "savePct", "shutouts"]
+        dummy_targets = pd.DataFrame(
+            {name: [0.0] for name in default_targets},
+            index=future_row.index
+        )
+        target_names_to_use = default_targets
+    else:
+        dummy_targets = pd.DataFrame(
+            {name: [0.0] for name in loaded_model.target_names},
+            index=future_row.index
+        )
+        target_names_to_use = loaded_model.target_names
+    
+    # Debug: Print target names and dummy_targets columns to help diagnose issues
+    print(f"[Inference] Target names: {loaded_model.target_names}", file=sys.stderr)
+    print(f"[Inference] Dummy targets columns: {list(dummy_targets.columns)}", file=sys.stderr)
+    print(f"[Inference] Future row columns (sample): {list(future_row.columns)[:10]}...", file=sys.stderr)
+    
+    # Encode features using pre-loaded encoders (use full future_row, same as original function)
+    try:
+        dataset = PlayerGameDataset(
+            future_row,
+            dummy_targets,
+            loaded_model.encoders,
+            target_names=target_names_to_use
+        )
+    
+        # Make prediction
         batch = dataset[0]
         numeric = batch["numeric"].unsqueeze(0)
-        categorical = {k: v.unsqueeze(0) for k, v in batch["categorical"].items()}
-        predictions = loaded_model.model(numeric, categorical)
+        categorical = batch["categorical"].unsqueeze(0)  # This is a tensor, not a dict
+        
+        with torch.no_grad():
+            outputs = loaded_model.model(numeric, categorical).numpy().squeeze(0)
     
-    # Convert predictions to dictionary (same mapping as predict_game_for_player)
-    predicted_dict = {}
-    for i, target_name in enumerate(loaded_model.target_names):
-        value = float(predictions[i].item())
-        # Map internal names to API names
-        if target_name == "blocks":
-            predicted_dict["blocks"] = max(0, value)
-        elif target_name == "shots":
-            predicted_dict["shots"] = max(0, value)
-            predicted_dict["shotsOnGoal"] = max(0, value)
-        elif target_name == "hits":
-            predicted_dict["hits"] = max(0, value)
-        elif target_name == "goals":
-            predicted_dict["goals"] = max(0, value)
-        elif target_name == "assists":
-            predicted_dict["assists"] = max(0, value)
-        elif target_name == "points":
-            predicted_dict["points"] = max(0, value)
-        elif target_name == "power_play_points":
-            predicted_dict["powerPlayPoints"] = max(0, value)
-        elif target_name == "plus_minus":
-            predicted_dict["plusMinus"] = value
-        elif target_name == "pim":
-            predicted_dict["pim"] = max(0, value)
-        elif target_name == "time_on_ice_seconds":
-            predicted_dict["timeOnIceSeconds"] = max(0, value)
-        elif target_name == "wins":
-            predicted_dict["wins"] = 1.0 if value > 0.5 else 0.0
-        elif target_name == "saves":
-            predicted_dict["saves"] = max(0, value)
-        elif target_name == "shots_against":
-            predicted_dict["shotsAgainst"] = max(0, value)
-        elif target_name == "goals_against":
-            predicted_dict["goalsAgainst"] = max(0, value)
-        elif target_name == "save_pct":
-            predicted_dict["savePct"] = max(0, min(1, value))
-        elif target_name == "shutouts":
-            predicted_dict["shutouts"] = 1.0 if value > 0.5 else 0.0
-    
-    return predicted_dict
+        # Convert to dict, ensuring non-negative values for certain stats (same as original function)
+        predicted_dict = {}
+        for name, val in zip(loaded_model.target_names, outputs):
+            float_val = float(val)
+            # Ensure non-negative values for counts/stats
+            if name in ["goals", "assists", "points", "shots", "shotsOnGoal", "hits", "blocks",
+                       "powerPlayPoints", "pim", "timeOnIceSeconds", "wins", "saves", 
+                       "shotsAgainst", "goalsAgainst", "shutouts"]:
+                float_val = max(0.0, float_val)
+            
+            # Map internal names to API names
+            if name == "blocks":
+                predicted_dict["blocks"] = float_val
+            elif name == "shots":
+                predicted_dict["shots"] = float_val
+                predicted_dict["shotsOnGoal"] = float_val
+            elif name == "hits":
+                predicted_dict["hits"] = float_val
+            elif name == "goals":
+                predicted_dict["goals"] = float_val
+            elif name == "assists":
+                predicted_dict["assists"] = float_val
+            elif name == "points":
+                predicted_dict["points"] = float_val
+            elif name == "power_play_points" or name == "powerPlayPoints":
+                predicted_dict["powerPlayPoints"] = float_val
+            elif name == "plus_minus" or name == "plusMinus":
+                predicted_dict["plusMinus"] = float_val
+            elif name == "pim":
+                predicted_dict["pim"] = float_val
+            elif name == "time_on_ice_seconds" or name == "timeOnIceSeconds":
+                predicted_dict["timeOnIceSeconds"] = float_val
+            elif name == "wins":
+                predicted_dict["wins"] = 1.0 if float_val > 0.5 else 0.0
+            elif name == "saves":
+                predicted_dict["saves"] = float_val
+            elif name == "shots_against" or name == "shotsAgainst":
+                predicted_dict["shotsAgainst"] = float_val
+            elif name == "goals_against" or name == "goalsAgainst":
+                predicted_dict["goalsAgainst"] = float_val
+            elif name == "save_pct" or name == "savePct":
+                predicted_dict["savePct"] = max(0, min(1, float_val))
+            elif name == "shutouts":
+                predicted_dict["shutouts"] = 1.0 if float_val > 0.5 else 0.0
+        
+        return predicted_dict
+    except Exception as e:
+        # If feature construction fails, return zeros
+        import traceback
+        print(f"Warning: Failed to predict for player {player_id} with pre-loaded model: {e}", file=sys.stderr)
+        print(f"Traceback: {traceback.format_exc()}", file=sys.stderr)
+        return {name: 0.0 for name in loaded_model.target_names}
 
 
 
