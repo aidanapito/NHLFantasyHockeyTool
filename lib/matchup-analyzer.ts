@@ -1129,8 +1129,12 @@ export async function analyzeWeeklyMatchupWithProjections(
       const nhlId = player.playerId;
       const dbId = nhlIdToDbId.get(nhlId);
       if (!dbId) {
-        console.warn(`[Matchup Projections] No DB player.id for nhlId=${nhlId} (team1), skipping predictions for this player`);
+        console.warn(`[Matchup Projections] No DB player.id for nhlId=${nhlId} (${player.playerName}, team1), skipping predictions for this player`);
         continue;
+      }
+      // Log the mapping for debugging
+      if (predictionRequests.length < 5) {
+        console.log(`[Matchup Projections] Mapping: nhlId=${nhlId} (${player.playerName}) -> dbId=${dbId}`);
       }
       for (const game of player.games) {
         const gameDate = new Date(game.date + 'T00:00:00');
@@ -1155,8 +1159,12 @@ export async function analyzeWeeklyMatchupWithProjections(
       const nhlId = player.playerId;
       const dbId = nhlIdToDbId.get(nhlId);
       if (!dbId) {
-        console.warn(`[Matchup Projections] No DB player.id for nhlId=${nhlId} (team2), skipping predictions for this player`);
+        console.warn(`[Matchup Projections] No DB player.id for nhlId=${nhlId} (${player.playerName}, team2), skipping predictions for this player`);
         continue;
+      }
+      // Log the mapping for debugging
+      if (predictionRequests.length < 5) {
+        console.log(`[Matchup Projections] Mapping: nhlId=${nhlId} (${player.playerName}) -> dbId=${dbId}`);
       }
       for (const game of player.games) {
         const gameDate = new Date(game.date + 'T00:00:00');

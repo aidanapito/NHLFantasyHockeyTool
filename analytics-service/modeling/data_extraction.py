@@ -80,11 +80,13 @@ def load_game_logs(config: Optional[DataConfig] = None, engine=None) -> pd.DataF
 
     seasons_tuple = tuple(config.seasons)
 
+    # Check if GameLog.playerId contains NHL IDs or database IDs
+    # Try to join on both id and nhlId to see which one matches
     query = text(
         """
         SELECT
           gl.id,
-          gl."playerId"      AS player_id,
+          COALESCE(p.id, p2.id) AS player_id,  -- Use database ID from Player table
           gl."gameId"        AS game_id,
           gl."gameDate"      AS game_date,
           gl.season,
@@ -110,9 +112,12 @@ def load_game_logs(config: Optional[DataConfig] = None, engine=None) -> pd.DataF
           gl."savePct"       AS save_pct,
           gl.shutouts
         FROM "GameLog" gl
+        LEFT JOIN "Player" p ON gl."playerId" = p.id  -- Try matching on database ID
+        LEFT JOIN "Player" p2 ON gl."playerId" = p2."nhlId"  -- Try matching on NHL ID
         WHERE gl.season = ANY(:seasons)
           AND gl."gameType" = :game_type
-        ORDER BY gl."playerId", gl."gameDate"
+          AND (p.id IS NOT NULL OR p2.id IS NOT NULL)  -- Must match one of them
+        ORDER BY COALESCE(p.id, p2.id), gl."gameDate"
         """
     )
 

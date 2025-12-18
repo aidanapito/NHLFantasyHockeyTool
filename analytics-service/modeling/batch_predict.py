@@ -93,6 +93,39 @@ def main():
             sys.stdout.flush()
             sys.exit(0)
         
+        # Log sample of player IDs we're about to predict for
+        sample_player_ids = [int(r["player_id"]) for r in predictions_requests[:5]]
+        print(f"[Batch Predict] Processing {len(predictions_requests)} predictions", file=sys.stderr)
+        print(f"[Batch Predict] Sample player IDs in request: {sample_player_ids}", file=sys.stderr)
+        
+        # Load base dataset once to check what player IDs exist
+        if loaded_model:
+            from .data_extraction import load_base_dataset
+            base = load_base_dataset(cfg.data)  # Pass cfg.data (DataConfig) not cfg (ExperimentConfig)
+            unique_player_ids_in_data = base.game_logs["player_id"].unique()
+            print(f"[Batch Predict] Total unique player IDs in GameLog dataset: {len(unique_player_ids_in_data)}", file=sys.stderr)
+            print(f"[Batch Predict] Sample player IDs in dataset: {unique_player_ids_in_data[:20].tolist()}", file=sys.stderr)
+            print(f"[Batch Predict] Player ID range in dataset: min={unique_player_ids_in_data.min()}, max={unique_player_ids_in_data.max()}", file=sys.stderr)
+            
+            # Check if any of the requested player IDs have GameLog entries by NHL ID
+            sample_request_ids = [int(r["player_id"]) for r in predictions_requests[:5]]
+            for req_id in sample_request_ids:
+                # Check if this ID exists as a database ID in GameLog
+                has_game_logs_by_id = (base.game_logs["player_id"] == req_id).any()
+                # Check if this ID exists as an NHL ID, and if so, find the database ID
+                player_by_nhl = base.players[base.players["nhl_id"] == req_id]
+                if not player_by_nhl.empty:
+                    db_id = player_by_nhl["id"].iloc[0]
+                    has_game_logs_by_nhl = (base.game_logs["player_id"] == db_id).any()
+                    print(f"[Batch Predict] Player ID {req_id} (NHL ID) -> DB ID {db_id}: GameLog entries by DB ID: {has_game_logs_by_nhl}", file=sys.stderr)
+                else:
+                    # Check if it's a database ID
+                    player_by_id = base.players[base.players["id"] == req_id]
+                    if not player_by_id.empty:
+                        print(f"[Batch Predict] Player ID {req_id} (DB ID): GameLog entries: {has_game_logs_by_id}", file=sys.stderr)
+                    else:
+                        print(f"[Batch Predict] Player ID {req_id}: Not found in Player table at all", file=sys.stderr)
+        
         for idx, req in enumerate(predictions_requests):
             try:
                 # Extract request parameters

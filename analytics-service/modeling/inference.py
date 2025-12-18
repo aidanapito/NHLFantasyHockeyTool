@@ -290,6 +290,23 @@ def predict_game_for_player_with_model(
     
     # Load base dataset and build features (this is still needed for player data)
     base = load_base_dataset(cfg.data)
+    
+    # Check if player_id is actually an NHL ID by looking it up in the Player table
+    # If the player_id doesn't match any Player.id, try to find it by nhlId
+    # This handles cases where GameLog might have been populated with NHL IDs
+    player_info_by_id = base.players[base.players["id"] == player_id]
+    if player_info_by_id.empty:
+        # Maybe player_id is actually an NHL ID? Try to find by nhlId
+        player_info_by_nhl = base.players[base.players["nhl_id"] == player_id]
+        if not player_info_by_nhl.empty:
+            # Found by NHL ID, use the database ID instead
+            actual_player_id = player_info_by_nhl["id"].iloc[0]
+            print(f"Warning: player_id {player_id} was an NHL ID, using database ID {actual_player_id} instead", file=sys.stderr)
+            player_id = actual_player_id
+        else:
+            # Player doesn't exist in Player table at all
+            print(f"Warning: player_id {player_id} not found in Player table (neither as id nor nhlId)", file=sys.stderr)
+    
     ftables = build_feature_tables(base, cfg.data)
     
     # Filter to this player's historical games (strictly before game_date)
@@ -298,7 +315,17 @@ def predict_game_for_player_with_model(
     
     if player_rows.empty:
         # Player has no historical data - return zeros/defaults
-        print(f"Warning: Player {player_id} not found in dataset. Available player IDs: {features['player_id'].unique()[:10] if len(features) > 0 else 'none'}", file=sys.stderr)
+        unique_player_ids = features['player_id'].unique() if len(features) > 0 else []
+        sample_ids = unique_player_ids[:20].tolist() if len(unique_player_ids) > 0 else []
+        print(f"Warning: Player ID {player_id} not found in dataset.", file=sys.stderr)
+        print(f"  Requested player_id: {player_id}", file=sys.stderr)
+        print(f"  Total players in dataset: {len(unique_player_ids)}", file=sys.stderr)
+        print(f"  Sample player IDs in dataset: {sample_ids}", file=sys.stderr)
+        print(f"  Player ID range in dataset: min={unique_player_ids.min() if len(unique_player_ids) > 0 else 'N/A'}, max={unique_player_ids.max() if len(unique_player_ids) > 0 else 'N/A'}", file=sys.stderr)
+        # Check if this player exists in the Player table but has no GameLog entries
+        player_exists = not base.players[base.players["id"] == player_id].empty
+        if player_exists:
+            print(f"  Note: Player ID {player_id} exists in Player table but has no GameLog entries", file=sys.stderr)
         return {name: 0.0 for name in loaded_model.target_names}
     
     # Convert game_date to datetime for comparison
