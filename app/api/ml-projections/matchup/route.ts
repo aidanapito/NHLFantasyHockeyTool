@@ -162,6 +162,11 @@ export async function POST(request: NextRequest) {
       }),
     ]);
 
+    // Log stderr for debugging (contains warnings about missing players, etc.)
+    if (stderr && stderr.trim().length > 0) {
+      console.log(`[Batch Prediction API] Python stderr output:\n${stderr}`);
+    }
+
     // Check if we got any output at all
     if (!stdout || stdout.trim().length === 0) {
       console.error(`[Batch Prediction API] No output from Python process`);
