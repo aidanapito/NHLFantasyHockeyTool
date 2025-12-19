@@ -118,6 +118,11 @@ def load_game_logs(config: Optional[DataConfig] = None, engine=None) -> pd.DataF
           AND gl."gameType" = :game_type
           AND (p.id IS NOT NULL OR p2.id IS NOT NULL)  -- Must match one of them
         ORDER BY COALESCE(p.id, p2.id), gl."gameDate"
+        
+        -- Note: This query handles both cases:
+        -- 1. If GameLog.playerId contains database IDs (Player.id), p.id will match
+        -- 2. If GameLog.playerId contains NHL IDs (Player.nhlId), p2.id will match
+        -- The COALESCE ensures we always use the database ID (Player.id) in the result
         """
     )
 
