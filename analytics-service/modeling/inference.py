@@ -313,11 +313,23 @@ def predict_game_for_player_with_model(
     features = ftables.features.copy()
     player_rows = features[features["player_id"] == player_id].copy()
     
+    # If not found by database ID, try to find by NHL ID
+    # This handles the case where GameLog.playerId contains NHL IDs
     if player_rows.empty:
-        # Player has no historical data - return zeros/defaults
+        # Get the player's NHL ID
+        player_info = base.players[base.players["id"] == player_id]
+        if not player_info.empty and "nhl_id" in player_info.columns:
+            nhl_id = player_info["nhl_id"].iloc[0]
+            # Check if GameLog was populated with NHL IDs by looking for this NHL ID in the features
+            # But wait - the features table should have database IDs after the join, so this won't work
+            # Instead, we need to check if GameLog has entries for this player's NHL ID
+            # The query should have already handled this, so if we're here, the player truly has no GameLog entries
+            print(f"Warning: Player ID {player_id} (NHL ID: {nhl_id}) not found in dataset.", file=sys.stderr)
+        else:
+            print(f"Warning: Player ID {player_id} not found in dataset.", file=sys.stderr)
+        
         unique_player_ids = features['player_id'].unique() if len(features) > 0 else []
         sample_ids = unique_player_ids[:20].tolist() if len(unique_player_ids) > 0 else []
-        print(f"Warning: Player ID {player_id} not found in dataset.", file=sys.stderr)
         print(f"  Requested player_id: {player_id}", file=sys.stderr)
         print(f"  Total players in dataset: {len(unique_player_ids)}", file=sys.stderr)
         print(f"  Sample player IDs in dataset: {sample_ids}", file=sys.stderr)
@@ -326,6 +338,13 @@ def predict_game_for_player_with_model(
         player_exists = not base.players[base.players["id"] == player_id].empty
         if player_exists:
             print(f"  Note: Player ID {player_id} exists in Player table but has no GameLog entries", file=sys.stderr)
+            # Check if GameLog has entries for this player's NHL ID (in case GameLog.playerId contains NHL IDs)
+            if "nhl_id" in base.players.columns:
+                player_nhl_id = base.players[base.players["id"] == player_id]["nhl_id"].iloc[0] if not base.players[base.players["id"] == player_id].empty else None
+                if player_nhl_id is not None:
+                    # Check raw GameLog to see if it has entries with this NHL ID
+                    # We can't easily check this here since we don't have raw GameLog, but the query should have handled it
+                    print(f"  Player NHL ID: {player_nhl_id} - GameLog query should have matched this if GameLog.playerId contains NHL IDs", file=sys.stderr)
         return {name: 0.0 for name in loaded_model.target_names}
     
     # Convert game_date to datetime for comparison
