@@ -63,13 +63,14 @@ class DataConfig:
 
     seasons: List[str] = field(
         default_factory=lambda: [
-            # Historical seasons
-            "20212022",
-            "20222023",
-            "20232024",
-            "20242025",
-            # Current season – safe to include as long as splits are time-based
-            "20252026",
+            # Historical seasons - only include seasons that exist in GameLog table
+            # Note: GameLog currently has data for 2023-2024 season
+            "20232024",  # 2023-2024 season
+            # Add more seasons as GameLog data becomes available:
+            # "20212022",
+            # "20222023",
+            # "20242025",
+            # "20252026",
         ]
     )
     game_type: str = "regular"

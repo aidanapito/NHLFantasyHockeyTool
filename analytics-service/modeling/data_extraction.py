@@ -135,6 +135,15 @@ def load_game_logs(config: Optional[DataConfig] = None, engine=None) -> pd.DataF
         },
     )
 
+    # Debug: Log some info about what was loaded
+    if len(df) > 0:
+        unique_player_ids = df["player_id"].unique()
+        print(f"[Data Extraction] Loaded {len(df)} GameLog entries for {len(unique_player_ids)} unique players", file=__import__("sys").stderr)
+        print(f"[Data Extraction] Player ID range in GameLog: min={unique_player_ids.min()}, max={unique_player_ids.max()}", file=__import__("sys").stderr)
+        print(f"[Data Extraction] Sample player IDs in GameLog: {unique_player_ids[:10].tolist()}", file=__import__("sys").stderr)
+    else:
+        print(f"[Data Extraction] WARNING: No GameLog entries found for seasons {config.seasons}, gameType {config.game_type}", file=__import__("sys").stderr)
+
     # Ensure correct dtypes
     df["game_date"] = pd.to_datetime(df["game_date"])
     return df
