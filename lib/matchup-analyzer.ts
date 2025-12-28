@@ -1061,6 +1061,7 @@ export async function analyzeWeeklyMatchupWithProjections(
   );
 
   // Build mapping from NHL IDs (used in matchup analysis) to internal DB player IDs (used in ML dataset)
+  // When NHL IDs match players without game logs, we'll try to find better matches by name
   const allNhlIds = Array.from(
     new Set([
       ...baseAnalysis.team1.playerBreakdown.map(p => p.playerId).filter((id): id is number => !!id),
@@ -1078,10 +1079,90 @@ export async function analyzeWeeklyMatchupWithProjections(
         select: {
           id: true,
           nhlId: true,
+          fullName: true,
         },
       });
 
-      nhlIdToDbId = new Map(dbPlayers.map(p => [p.nhlId, p.id]));
+      // First, create initial mapping
+      const initialMap = new Map(dbPlayers.map(p => [p.nhlId, p.id]));
+      
+      // Batch check which players have game logs
+      const dbIdsToCheck = Array.from(initialMap.values());
+      const playersWithLogs = await prisma.player.findMany({
+        where: {
+          id: { in: dbIdsToCheck },
+          gameLogs: {
+            some: {}
+          }
+        },
+        select: {
+          id: true,
+        },
+      });
+      const hasLogsSet = new Set(playersWithLogs.map(p => p.id));
+      
+      // Check each mapped player to see if they have game logs
+      // If not, try to find a player with the same name that DOES have game logs
+      const playersNeedingResolution: Array<{nhlId: number, dbId: number, fullName: string}> = [];
+      
+      for (const [nhlId, dbId] of initialMap.entries()) {
+        if (hasLogsSet.has(dbId)) {
+          // Player has game logs, use it
+          nhlIdToDbId.set(nhlId, dbId);
+        } else {
+          // This player has no game logs, collect for batch resolution
+          const player = dbPlayers.find(p => p.nhlId === nhlId);
+          if (player?.fullName) {
+            playersNeedingResolution.push({ nhlId, dbId, fullName: player.fullName });
+          } else {
+            nhlIdToDbId.set(nhlId, dbId);
+          }
+        }
+      }
+      
+      // Batch resolve players without game logs by finding better matches by name
+      if (playersNeedingResolution.length > 0) {
+        for (const { nhlId, dbId, fullName } of playersNeedingResolution) {
+          const nameParts = fullName.split(' ');
+          const firstName = nameParts[0];
+          const lastName = nameParts.slice(1).join(' ');
+
+          // Find players with same name that have game logs
+          const candidates = await prisma.player.findMany({
+            where: {
+              AND: [
+                { firstName: { contains: firstName, mode: 'insensitive' } },
+                { lastName: { contains: lastName, mode: 'insensitive' } },
+                {
+                  gameLogs: {
+                    some: {}
+                  }
+                }
+              ]
+            },
+            select: {
+              id: true,
+              nhlId: true,
+              fullName: true,
+            },
+            take: 5,
+          });
+
+          // Prefer exact name match
+          const exactMatch = candidates.find(c => c.fullName.toLowerCase() === fullName.toLowerCase());
+          if (exactMatch) {
+            console.log(`[Matchup Projections] Resolved ${fullName} (NHL ID ${nhlId}, no logs) -> DB ID ${exactMatch.id} (NHL ID ${exactMatch.nhlId}, with logs)`);
+            nhlIdToDbId.set(nhlId, exactMatch.id);
+          } else if (candidates.length > 0) {
+            // Use first candidate if no exact match
+            console.log(`[Matchup Projections] Resolved ${fullName} (NHL ID ${nhlId}, no logs) -> DB ID ${candidates[0].id} (NHL ID ${candidates[0].nhlId}, with logs)`);
+            nhlIdToDbId.set(nhlId, candidates[0].id);
+          } else {
+            // No better match found, use original
+            nhlIdToDbId.set(nhlId, dbId);
+          }
+        }
+      }
 
       console.log('[Matchup Projections] NHL->DB ID map:', {
         totalNhlIds: allNhlIds.length,

@@ -89,7 +89,7 @@ async function collectGameLogs() {
     
     for (let i = 0; i < players.length; i++) {
       const player = players[i];
-      console.log(`[${i + 1}/${players.length}] Processing ${player.name} (ID: ${player.nhlId})...`);
+      console.log(`[${i + 1}/${players.length}] Processing ${player.fullName} (ID: ${player.nhlId})...`);
       
       try {
         // Determine if player is a goalie
@@ -101,7 +101,7 @@ async function collectGameLogs() {
           : await fetchPlayerGameLogs(player.nhlId, args.season!);
         
         if (gameLogs.length === 0) {
-          console.log(`   ⚠️  No game logs found for ${player.name}`);
+          console.log(`   ⚠️  No game logs found for ${player.fullName}`);
           continue;
         }
         

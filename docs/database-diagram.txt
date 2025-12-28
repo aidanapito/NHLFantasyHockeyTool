@@ -1,0 +1,282 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    NHL STAT ANALYZER - DATABASE ARCHITECTURE                  ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          EXTERNAL DATA SOURCES                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│  ┌──────────────┐         ┌──────────────┐         ┌──────────────┐          │
+│  │   NHL API   │         │  ESPN API  │         │ Sleeper API │          │
+│  │             │         │             │         │              │          │
+│  │ • Players   │         │ • Leagues   │         │ • Leagues   │          │
+│  │ • GameLogs  │         │ • Teams     │         │ • Teams     │          │
+│  │ • Schedule  │         │ • Rosters   │         │ • Rosters   │          │
+│  │ • Stats     │         │ • Standings │         │ • Standings │          │
+│  └──────┬──────┘         └──────┬──────┘         └──────┬──────┘          │
+│         │                       │                        │                  │
+│         └───────────────────────┴────────────────────────┘                  │
+│                              │                                               │
+│                              ▼                                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            DATABASE SCHEMA                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                          Player (CORE)                                 │  │
+│  │  ┌─────────────────────────────────────────────────────────────┐    │  │
+│  │  │ id: Int (PK) ⭐ PRIMARY KEY - Use this everywhere!          │    │  │
+│  │  │ nhlId: Int (UNIQUE) - Current NHL API ID                    │    │  │
+│  │  │ firstName, lastName, fullName: String                        │    │  │
+│  │  │ position: String (C, LW, RW, D, G)                          │    │  │
+│  │  │ team: String?                                                 │    │  │
+│  │  │ isActive: Boolean                                            │    │  │
+│  │  └─────────────────────────────────────────────────────────────┘    │  │
+│  │                                                                       │  │
+│  │  ⚠️  CRITICAL: Only ONE Player entry per actual person!              │  │
+│  │      No duplicates allowed!                                        │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                              │                                                 │
+│                              │ 1                                               │
+│                              │                                                 │
+│                              ▼ many                                            │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                    PlayerIdMapping (NEW) ⭐                          │  │
+│  │  ┌─────────────────────────────────────────────────────────────┐    │  │
+│  │  │ id: Int (PK)                                                │    │  │
+│  │  │ playerId: Int (FK → Player.id)                              │    │  │
+│  │  │ nhlId: Int? - Historical/alternate NHL IDs                  │    │  │
+│  │  │ espnId: String? - ESPN player ID                            │    │  │
+│  │  │ sleeperId: String? - Sleeper player ID                      │    │  │
+│  │  │ source: String - Where this ID came from                    │    │  │
+│  │  │ isActive: Boolean - Is this the current ID?                 │    │  │
+│  │  └─────────────────────────────────────────────────────────────┘    │  │
+│  │                                                                       │  │
+│  │  Purpose: Track ALL external IDs for a player                       │  │
+│  │  Example: Kyle Connor might have nhlId: 8478398 (current) and      │  │
+│  │            nhlId: 3899952 (old/alternate) in this table            │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                                                               │
+│                              │                                                 │
+│                              │ 1                                               │
+│                              │                                                 │
+│                              ▼ many                                            │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                          GameLog                                      │  │
+│  │  ┌─────────────────────────────────────────────────────────────┐    │  │
+│  │  │ id: Int (PK)                                                │    │  │
+│  │  │ playerId: Int (FK → Player.id) ⭐ USE DB ID!                │    │  │
+│  │  │ gameId: Int                                                 │    │  │
+│  │  │ gameDate: DateTime                                          │    │  │
+│  │  │ season: String ("20232024", "20252026")                    │    │  │
+│  │  │ gameType: String ("regular", "playoff")                     │    │  │
+│  │  │ opponentTeam, team: String                                  │    │  │
+│  │  │ isHome: Boolean                                             │    │  │
+│  │  │                                                              │    │  │
+│  │  │ -- Stats (goals, assists, points, shots, hits, etc.)        │    │  │
+│  │  └─────────────────────────────────────────────────────────────┘    │  │
+│  │                                                                       │  │
+│  │  ⚠️  NEVER store NHL IDs here! Always use Player.id!                │  │
+│  │  @@unique([playerId, gameId])                                        │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                                                               │
+│                              │                                                 │
+│                              │ 1                                               │
+│                              │                                                 │
+│                              ▼ many                                            │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                       PlayerStats (Aggregated)                        │  │
+│  │  ┌─────────────────────────────────────────────────────────────┐    │  │
+│  │  │ id: Int (PK)                                                │    │  │
+│  │  │ playerId: Int (FK → Player.id) ⭐ USE DB ID!                │    │  │
+│  │  │ season: String                                              │    │  │
+│  │  │ gameType: String                                           │    │  │
+│  │  │ gamesPlayed, goals, assists, points, etc.                  │    │  │
+│  │  └─────────────────────────────────────────────────────────────┘    │  │
+│  │                                                                       │  │
+│  │  @@unique([playerId, season, gameType])                              │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                                                               │
+│                              │                                                 │
+│                              │ 1                                               │
+│                              │                                                 │
+│                              ▼ many                                            │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                      PlayerProjection (ML)                            │  │
+│  │  ┌─────────────────────────────────────────────────────────────┐    │  │
+│  │  │ id: Int (PK)                                                │    │  │
+│  │  │ playerId: Int (FK → Player.id) ⭐ USE DB ID!                │    │  │
+│  │  │ gameDate: DateTime                                          │    │  │
+│  │  │ modelVersion: String                                        │    │  │
+│  │  │ predictedGoals, predictedAssists, etc.                      │    │  │
+│  │  └─────────────────────────────────────────────────────────────┘    │  │
+│  │                                                                       │  │
+│  │  @@unique([playerId, gameDate, modelVersion])                        │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                                                               │
+│                              │                                                 │
+│                              │ 1                                               │
+│                              │                                                 │
+│                              ▼ many                                            │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                       FantasyLeague                                  │  │
+│  │  ┌─────────────────────────────────────────────────────────────┐    │  │
+│  │  │ id: String (PK)                                            │    │  │
+│  │  │ platform: String ("espn", "sleeper")                       │    │  │
+│  │  │ platformId: String (external league ID)                    │    │  │
+│  │  │ leagueName, season: String                                 │    │  │
+│  │  │ categories: String[]                                       │    │  │
+│  │  └─────────────────────────────────────────────────────────────┘    │  │
+│  │                                                                       │  │
+│  │  @@unique([platform, platformId, season])                            │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                              │                                                 │
+│                              │ 1                                               │
+│                              │                                                 │
+│                              ▼ many                                            │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                       FantasyTeam                                     │  │
+│  │  ┌─────────────────────────────────────────────────────────────┐    │  │
+│  │  │ id: String (PK)                                             │    │  │
+│  │  │ leagueId: String (FK → FantasyLeague.id)                    │    │  │
+│  │  │ teamName, ownerName: String                                 │    │  │
+│  │  │ platformTeamId: String                                      │    │  │
+│  │  └─────────────────────────────────────────────────────────────┘    │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                              │                                                 │
+│                              │ 1                                               │
+│                              │                                                 │
+│                              ▼ many                                            │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                       FantasyRoster                                   │  │
+│  │  ┌─────────────────────────────────────────────────────────────┐    │  │
+│  │  │ id: String (PK)                                             │    │  │
+│  │  │ teamId: String (FK → FantasyTeam.id)                        │    │  │
+│  │  │ playerId: Int (FK → Player.id) ⭐ USE DB ID!                │    │  │
+│  │  │ slotPosition: String                                        │    │  │
+│  │  └─────────────────────────────────────────────────────────────┘    │  │
+│  │                                                                       │  │
+│  │  ⚠️  NEVER store NHL IDs or ESPN IDs here! Always use Player.id!    │  │
+│  │  @@unique([teamId, playerId])                                        │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                                                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          DATA FLOW DIAGRAM                                   ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    FROM NHL API → DATABASE                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│  1. NHL API returns: { nhlId: 8478398, name: "Kyle Connor", ... }          │
+│                                                                               │
+│  2. Check PlayerIdMapping:                                                   │
+│     ┌─────────────────────────────────────┐                                 │
+│     │ WHERE nhlId = 8478398 AND isActive   │                                 │
+│     │ → Get playerId (e.g., 24)            │                                 │
+│     └─────────────────────────────────────┘                                 │
+│                                                                               │
+│  3. If not found, check Player:                                              │
+│     ┌─────────────────────────────────────┐                                 │
+│     │ WHERE nhlId = 8478398                │                                 │
+│     │ → Get playerId or create new Player  │                                 │
+│     └─────────────────────────────────────┘                                 │
+│                                                                               │
+│  4. Create/Update PlayerIdMapping:                                           │
+│     ┌─────────────────────────────────────┐                                 │
+│     │ playerId: 24                         │                                 │
+│     │ nhlId: 8478398                       │                                 │
+│     │ isActive: true                       │                                 │
+│     └─────────────────────────────────────┘                                 │
+│                                                                               │
+│  5. Create GameLog:                                                          │
+│     ┌─────────────────────────────────────┐                                 │
+│     │ playerId: 24  ⭐ DB ID, NOT NHL ID!     │                                 │
+│     │ gameId: 12345                          │                                 │
+│     │ goals: 2, assists: 1, ...              │                                 │
+│     └─────────────────────────────────────┘                                 │
+│                                                                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                  FROM ESPN API → DATABASE                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│  1. ESPN API returns: { espnId: "12345", name: "Kyle Connor", ... }         │
+│                                                                               │
+│  2. Try PlayerIdMapping:                                                    │
+│     ┌─────────────────────────────────────┐                                 │
+│     │ WHERE espnId = "12345"               │                                 │
+│     │ → Get playerId (e.g., 24)            │                                 │
+│     └─────────────────────────────────────┘                                 │
+│                                                                               │
+│  3. If not found, try by name:                                              │
+│     ┌─────────────────────────────────────┐                                 │
+│     │ WHERE fullName = "Kyle Connor"       │                                 │
+│     │ → Get playerId (e.g., 24)            │                                 │
+│     └─────────────────────────────────────┘                                 │
+│                                                                               │
+│  4. Create/Update PlayerIdMapping:                                          │
+│     ┌─────────────────────────────────────┐                                 │
+│     │ playerId: 24                         │                                 │
+│     │ espnId: "12345"                      │                                 │
+│     │ isActive: true                       │                                 │
+│     └─────────────────────────────────────┘                                 │
+│                                                                               │
+│  5. Create FantasyRoster:                                                   │
+│     ┌─────────────────────────────────────┐                                 │
+│     │ playerId: 24  ⭐ DB ID, NOT ESPN ID! │                                 │
+│     │ teamId: "team-123"                   │                                 │
+│     │ slotPosition: "C"                    │                                 │
+│     └─────────────────────────────────────┘                                 │
+│                                                                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          KEY PRINCIPLES                                       ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+1. ⭐ Player.id is the PRIMARY KEY - Use it everywhere as foreign key
+2. ⭐ PlayerIdMapping tracks ALL external IDs (NHL, ESPN, Sleeper)
+3. ⭐ NEVER store external IDs directly in GameLog, FantasyRoster, etc.
+4. ⭐ ONE Player entry per actual person (no duplicates)
+5. ⭐ When resolving external IDs, always go through PlayerIdMapping first
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          CURRENT PROBLEMS                                     ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+❌ Problem 1: Duplicate Player entries
+   - Player 1: id=24, nhlId=8478398, fullName="Kyle Connor" ✅ (has game logs)
+   - Player 2: id=1024, nhlId=3899952, fullName="Kyle Connor" ❌ (no game logs)
+   
+   Solution: Merge duplicates, keep the one with most game logs
+
+❌ Problem 2: GameLog.playerId might contain NHL IDs instead of DB IDs
+   - Some GameLog entries have playerId = 3899952 (NHL ID) instead of 24 (DB ID)
+   
+   Solution: Migration script to fix all GameLog.playerId values
+
+❌ Problem 3: No PlayerIdMapping table
+   - Can't track multiple NHL IDs per player
+   - Can't track ESPN/Sleeper IDs
+   
+   Solution: Create PlayerIdMapping table and populate it
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          MIGRATION STEPS                                      ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+1. Create PlayerIdMapping table
+2. Populate PlayerIdMapping from existing Player.nhlId
+3. Identify duplicate Players by name
+4. Merge duplicates (keep Player with most GameLog entries)
+5. Fix GameLog.playerId (convert NHL IDs to DB IDs)
+6. Fix FantasyRoster.playerId (ensure using DB IDs)
+7. Add constraints to prevent future duplicates
+
