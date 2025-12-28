@@ -1185,28 +1185,6 @@ export async function analyzeWeeklyMatchupWithProjections(
   
   console.log(`[Matchup Projections] Total games before filtering: ${totalGamesBeforeFilter}, After filtering: ${predictionRequests.length}`);
 
-  // Collect games for team2 players (only future games)
-  for (const player of baseAnalysis.team2.playerBreakdown) {
-    if (player.games && player.games.length > 0 && player.nhlTeam) {
-      for (const game of player.games) {
-        const gameDate = new Date(game.date + 'T00:00:00');
-        gameDate.setHours(0, 0, 0, 0);
-        // Only include games on or after the cutoff date
-        if (gameDate >= cutoffDate) {
-          predictionRequests.push({
-            playerId: player.playerId,
-            gameDate: game.date,
-            opponentTeam: game.opponent,
-            playerTeam: player.nhlTeam,
-            isHome: game.isHome,
-          });
-        } else {
-          console.log(`[Matchup Projections] Filtered out past game: ${game.date} (cutoff: ${cutoffDate.toISOString().split('T')[0]})`);
-        }
-      }
-    }
-  }
-
   // If no games to predict, return base analysis without projections
   if (predictionRequests.length === 0) {
     console.warn(`[Matchup Projections] No future games found to predict. Cutoff date: ${cutoffDate.toISOString().split('T')[0]}`);
@@ -1345,15 +1323,44 @@ export async function analyzeWeeklyMatchupWithProjections(
     
     console.log(`[Matchup Projections] Created prediction map with ${predictionMap.size} entries`);
     console.log(`[Matchup Projections] Non-zero predictions: ${nonZeroStatsCount}, Zero predictions: ${emptyStatsCount}`);
+    console.log(`[Matchup Projections] Sample prediction keys:`, Array.from(predictionMap.keys()).slice(0, 10));
+    if (predictions.length > 0) {
+      console.log(`[Matchup Projections] Sample prediction (first):`, {
+        playerId: predictions[0].playerId,
+        gameDate: predictions[0].gameDate,
+        stats: predictions[0].stats,
+      });
+    }
 
     // Aggregate projections per player, then per team
+    // Create a set of games we requested predictions for (for filtering during aggregation)
+    const requestedGames = new Set<string>();
+    for (const req of predictionRequests) {
+      requestedGames.add(`${req.playerId}-${req.gameDate}`);
+    }
+    
+    console.log(`[Matchup Projections] Created requestedGames set with ${requestedGames.size} entries`);
+    console.log(`[Matchup Projections] Sample requested game keys:`, Array.from(requestedGames).slice(0, 5));
+    
     // Team 1 players
     let team1PredCount = 0;
     let team1ZeroCount = 0;
+    let team1MissingCount = 0;
     for (const player of baseAnalysis.team1.playerBreakdown) {
       if (player.games && player.games.length > 0) {
+        const nhlId = player.playerId;
+        const dbId = nhlIdToDbId.get(nhlId);
+        if (!dbId) {
+          console.warn(`[Matchup Projections] No DB ID for NHL ID ${nhlId} (${player.playerName}), skipping aggregation`);
+          continue;
+        }
         for (const game of player.games) {
-          const key = `${player.playerId}-${game.date}`;
+          const key = `${dbId}-${game.date}`;
+          // Only aggregate if we requested a prediction for this game
+          if (!requestedGames.has(key)) {
+            team1MissingCount++;
+            continue;
+          }
           const gamePred = predictionMap.get(key);
           
           if (gamePred) {
@@ -1378,18 +1385,38 @@ export async function analyzeWeeklyMatchupWithProjections(
               team1ProjectedStats.saves += gamePred.saves || 0;
               team1ProjectedStats.goalsAgainst += gamePred.goalsAgainst || 0;
             }
+          } else {
+            // Prediction was requested but not found in results
+            team1MissingCount++;
+            if (team1MissingCount <= 3) {
+              console.warn(`[Matchup Projections] Team1: No prediction found for key ${key} (player ${player.playerName}, game ${game.date})`);
+            }
           }
         }
       }
     }
+    
+    console.log(`[Matchup Projections] Team1 aggregation: ${team1PredCount} predictions found, ${team1ZeroCount} zero predictions, ${team1MissingCount} missing predictions`);
 
     // Team 2 players
     let team2PredCount = 0;
     let team2ZeroCount = 0;
+    let team2MissingCount = 0;
     for (const player of baseAnalysis.team2.playerBreakdown) {
       if (player.games && player.games.length > 0) {
+        const nhlId = player.playerId;
+        const dbId = nhlIdToDbId.get(nhlId);
+        if (!dbId) {
+          console.warn(`[Matchup Projections] No DB ID for NHL ID ${nhlId} (${player.playerName}), skipping aggregation`);
+          continue;
+        }
         for (const game of player.games) {
-          const key = `${player.playerId}-${game.date}`;
+          const key = `${dbId}-${game.date}`;
+          // Only aggregate if we requested a prediction for this game
+          if (!requestedGames.has(key)) {
+            team2MissingCount++;
+            continue;
+          }
           const gamePred = predictionMap.get(key);
           
           if (gamePred) {
@@ -1414,10 +1441,18 @@ export async function analyzeWeeklyMatchupWithProjections(
               team2ProjectedStats.saves += gamePred.saves || 0;
               team2ProjectedStats.goalsAgainst += gamePred.goalsAgainst || 0;
             }
+          } else {
+            // Prediction was requested but not found in results (shouldn't happen since we filtered by requestedGames)
+            team2MissingCount++;
+            if (team2MissingCount <= 3) {
+              console.warn(`[Matchup Projections] Team2: No prediction found for key ${key} (player ${player.playerName}, game ${game.date})`);
+            }
           }
         }
       }
     }
+    
+    console.log(`[Matchup Projections] Team2 aggregation: ${team2PredCount} predictions found, ${team2ZeroCount} zero predictions, ${team2MissingCount} missing predictions`);
 
     // Calculate goalie averages for team projections
     const team1GoalieGames = baseAnalysis.team1.playerBreakdown
