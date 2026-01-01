@@ -12,9 +12,9 @@ function NavigationLinks() {
   const searchParams = useSearchParams()
 
   const isActive = (path: string) => {
-    if (path === '/?tab=stats') {
-      // Treat stats view as the logical home page
-      return pathname === '/' && searchParams?.get('tab') === 'stats'
+    if (path === '/?tab=stats' || path === '/?tab=projections') {
+      // Treat stats/projections views as the logical home page
+      return pathname === '/' && (searchParams?.get('tab') === 'stats' || searchParams?.get('tab') === 'projections' || !searchParams?.get('tab'))
     } else if (path === '/?tab=team-info') {
       return pathname === '/' && searchParams?.get('tab') === 'team-info'
     }

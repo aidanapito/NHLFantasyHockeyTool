@@ -23,14 +23,10 @@ function HomePageContent() {
       label: 'ML Projections',
       content: <ProjectionsDisplay />,
     },
-    {
-      id: 'team-info',
-      label: 'Team Info',
-      content: <TeamInfo />,
-    },
   ];
 
-  const activeTabId = tabParam === 'team-info' ? 'team-info' : tabParam === 'projections' ? 'projections' : 'stats';
+  const activeTabId = tabParam === 'projections' ? 'projections' : 'stats';
+  const isTeamInfo = tabParam === 'team-info';
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -40,7 +36,11 @@ function HomePageContent() {
           NHL Fantasy Hockey Analyzer
         </h1>
 
-        <Tabs tabs={tabs} defaultTab={activeTabId} currentTab={activeTabId} />
+        {isTeamInfo ? (
+          <TeamInfo />
+        ) : (
+          <Tabs tabs={tabs} defaultTab={activeTabId} currentTab={activeTabId} />
+        )}
       </div>
     </div>
   );

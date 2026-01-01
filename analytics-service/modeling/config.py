@@ -83,7 +83,7 @@ class DataConfig:
 class TrainingConfig:
     batch_size: int = 512
     num_epochs: int = 50
-    learning_rate: float = 1e-3
+    learning_rate: float = 5e-4 #changed from 1e-3 to 5e-4
     weight_decay: float = 1e-4
     hidden_dims: List[int] = field(default_factory=lambda: [256, 256, 128])
     dropout: float = 0.1
