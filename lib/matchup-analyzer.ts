@@ -1186,23 +1186,16 @@ export async function analyzeWeeklyMatchupWithProjections(
     isHome: boolean;
   }> = [];
 
-  // Filter to only future games (games >= weekStartDate if provided, otherwise >= today)
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // Use week boundaries from baseAnalysis to include ALL games in the week (Monday to Sunday)
+  // regardless of whether we're in the middle of the week
+  const weekStartDateObj = new Date(baseAnalysis.weekStart + 'T00:00:00');
+  weekStartDateObj.setHours(0, 0, 0, 0);
+  const weekEndDateObj = new Date(baseAnalysis.weekEnd + 'T00:00:00');
+  weekEndDateObj.setHours(23, 59, 59, 999);
   
-  let cutoffDate: Date;
-  if (weekStartDate) {
-    cutoffDate = new Date(weekStartDate);
-    cutoffDate.setHours(0, 0, 0, 0);
-    // Don't filter out games that are in the past relative to today if weekStartDate is provided
-    // We want to predict all games in the selected week
-  } else {
-    cutoffDate = today;
-  }
-  
-  console.log(`[Matchup Projections] Date filtering - today: ${today.toISOString().split('T')[0]}, weekStart: ${weekStartDate ? new Date(weekStartDate).toISOString().split('T')[0] : 'not provided'}, cutoff: ${cutoffDate.toISOString().split('T')[0]}`);
+  console.log(`[Matchup Projections] Week boundaries - weekStart: ${baseAnalysis.weekStart}, weekEnd: ${baseAnalysis.weekEnd}`);
 
-  // Collect games for team1 players (only future games)
+  // Collect games for team1 players (all games in the week)
   let totalGamesBeforeFilter = 0;
   for (const player of baseAnalysis.team1.playerBreakdown) {
     if (player.games && player.games.length > 0 && player.nhlTeam) {
@@ -1220,8 +1213,8 @@ export async function analyzeWeeklyMatchupWithProjections(
       for (const game of player.games) {
         const gameDate = new Date(game.date + 'T00:00:00');
         gameDate.setHours(0, 0, 0, 0);
-        // Only include games on or after the cutoff date
-        if (gameDate >= cutoffDate) {
+        // Include all games within the week boundaries (Monday to Sunday)
+        if (gameDate >= weekStartDateObj && gameDate <= weekEndDateObj) {
           predictionRequests.push({
             playerId: dbId,
             gameDate: game.date,
@@ -1250,8 +1243,8 @@ export async function analyzeWeeklyMatchupWithProjections(
       for (const game of player.games) {
         const gameDate = new Date(game.date + 'T00:00:00');
         gameDate.setHours(0, 0, 0, 0);
-        // Only include games on or after the cutoff date
-        if (gameDate >= cutoffDate) {
+        // Include all games within the week boundaries (Monday to Sunday)
+        if (gameDate >= weekStartDateObj && gameDate <= weekEndDateObj) {
           predictionRequests.push({
             playerId: dbId,
             gameDate: game.date,
@@ -1264,16 +1257,16 @@ export async function analyzeWeeklyMatchupWithProjections(
     }
   }
   
-  console.log(`[Matchup Projections] Total games before filtering: ${totalGamesBeforeFilter}, After filtering: ${predictionRequests.length}`);
+  console.log(`[Matchup Projections] Total games in week: ${totalGamesBeforeFilter}, Games to project: ${predictionRequests.length}`);
 
   // If no games to predict, return base analysis without projections
   if (predictionRequests.length === 0) {
-    console.warn(`[Matchup Projections] No future games found to predict. Cutoff date: ${cutoffDate.toISOString().split('T')[0]}`);
+    console.warn(`[Matchup Projections] No games found to predict in week ${baseAnalysis.weekStart} to ${baseAnalysis.weekEnd}`);
     console.warn(`[Matchup Projections] Team1 players: ${baseAnalysis.team1.playerBreakdown.length}, Team2 players: ${baseAnalysis.team2.playerBreakdown.length}`);
     return baseAnalysis;
   }
   
-  console.log(`[Matchup Projections] Filtered to ${predictionRequests.length} future games (cutoff: ${cutoffDate.toISOString().split('T')[0]})`);
+  console.log(`[Matchup Projections] Projecting ${predictionRequests.length} games for the week (${baseAnalysis.weekStart} to ${baseAnalysis.weekEnd})`);
 
   // Call batch prediction API
   let team1ProjectedStats: TeamStats = {
@@ -1438,8 +1431,8 @@ export async function analyzeWeeklyMatchupWithProjections(
         for (const game of player.games) {
           const key = `${dbId}-${game.date}`;
           // Only aggregate if we requested a prediction for this game
+          // (games that didn't pass the date filter are skipped, not counted as missing)
           if (!requestedGames.has(key)) {
-            team1MissingCount++;
             continue;
           }
           const gamePred = predictionMap.get(key);
@@ -1494,8 +1487,8 @@ export async function analyzeWeeklyMatchupWithProjections(
         for (const game of player.games) {
           const key = `${dbId}-${game.date}`;
           // Only aggregate if we requested a prediction for this game
+          // (games that didn't pass the date filter are skipped, not counted as missing)
           if (!requestedGames.has(key)) {
-            team2MissingCount++;
             continue;
           }
           const gamePred = predictionMap.get(key);
