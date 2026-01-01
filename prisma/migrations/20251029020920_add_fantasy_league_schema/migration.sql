@@ -69,3 +69,4 @@ ALTER TABLE "FantasyRoster" ADD CONSTRAINT "FantasyRoster_teamId_fkey" FOREIGN K
 
 -- AddForeignKey
 ALTER TABLE "FantasyRoster" ADD CONSTRAINT "FantasyRoster_playerId_fkey" FOREIGN KEY ("playerId") REFERENCES "Player"("nhlId") ON DELETE CASCADE ON UPDATE CASCADE;
+

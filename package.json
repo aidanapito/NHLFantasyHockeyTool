@@ -10,7 +10,8 @@
     "test-espn": "node scripts/test-espn.js",
     "espn-login": "tsx scripts/espn-login.ts",
     "import-moneypuck": "tsx scripts/import-moneypuck.ts",
-    "collect-game-logs": "tsx scripts/collect-game-logs.ts"
+    "collect-game-logs": "tsx scripts/collect-game-logs.ts",
+    "validate-db": "tsx scripts/validate-database.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.18.0",

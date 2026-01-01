@@ -87,17 +87,17 @@ Matchup Analyzer UI - Enhanced
 
 - Accept JSON input via stdin or file with structure:
   ```json
-    {
-      "predictions": [
-        {
-          "player_id": 8471214,
-          "game_date": "2025-01-15",
-          "opponent_team": "TOR",
-          "player_team": "EDM",
-          "is_home": true
-        }
-      ]
-    }
+      {
+        "predictions": [
+          {
+            "player_id": 8471214,
+            "game_date": "2025-01-15",
+            "opponent_team": "TOR",
+            "player_team": "EDM",
+            "is_home": true
+          }
+        ]
+      }
   ```
 
 
@@ -121,15 +121,15 @@ Matchup Analyzer UI - Enhanced
 
 - Accept POST request with:
   ```typescript
-    {
-      predictions: Array<{
-        playerId: number;
-        gameDate: string; // YYYY-MM-DD
-        opponentTeam: string;
-        playerTeam: string;
-        isHome: boolean;
-      }>
-    }
+      {
+        predictions: Array<{
+          playerId: number;
+          gameDate: string; // YYYY-MM-DD
+          opponentTeam: string;
+          playerTeam: string;
+          isHome: boolean;
+        }>
+      }
   ```
 
 
@@ -137,7 +137,7 @@ Matchup Analyzer UI - Enhanced
 
 - Execute Python script via `child_process.spawn()`:
   ```typescript
-    python -m analytics-service.modeling.batch_predict
+      python -m analytics-service.modeling.batch_predict
   ```
 
 
@@ -163,17 +163,17 @@ Matchup Analyzer UI - Enhanced
                                                                 - Calculate projected category wins
                                                                 - Return enhanced `MatchupComparison` with:
     ```typescript
-        {
-          ...existing_fields,
-          projections: {
-            team1: TeamStats; // Projected stats
-            team2: TeamStats;
-            categoryWins: {
-              team1: number;
-              team2: number;
-            };
-          }
-        }
+            {
+              ...existing_fields,
+              projections: {
+                team1: TeamStats; // Projected stats
+                team2: TeamStats;
+                categoryWins: {
+                  team1: number;
+                  team2: number;
+                };
+              }
+            }
     ```
 
 
@@ -298,4 +298,3 @@ Use same category calculation as existing matchup analyzer.
 - Sensitivity analysis (best/worst case projections)
 - Lineup optimization based on projections
 - Historical accuracy tracking
-- Player-level projection details UI
