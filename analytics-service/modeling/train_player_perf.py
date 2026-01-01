@@ -204,9 +204,9 @@ def train(cfg: ExperimentConfig | None = None) -> None:
             elif stat_mean < 0.5:  # Moderately rare
                 stat_weights[i] = 1.5
             
-            # Key offensive stats get more weight (but not excessive)
+            # Key offensive stats get more weight - focus on improving these critical stats
             if stat in ['goals', 'assists', 'points']:
-                stat_weights[i] *= 1.5  # Reduced from 2.0 to 1.5
+                stat_weights[i] *= 3.0  # Increased from 1.5 to 3.0 to prioritize offensive stats
         
         weighted_mse = (mse_per_stat * stat_weights.unsqueeze(0)).mean()
         return weighted_mse
