@@ -336,34 +336,45 @@ async function validateIndexes() {
 
 async function validateConstraints() {
   try {
-    // Check for required constraints
-    const constraints = await prisma.$queryRaw<Array<{ constraint_name: string; table_name: string; constraint_type: string }>>`
-      SELECT 
-        constraint_name,
-        table_name,
-        constraint_type
-      FROM information_schema.table_constraints
-      WHERE table_schema = 'public'
-      AND constraint_type IN ('UNIQUE', 'PRIMARY KEY', 'FOREIGN KEY')
-      ORDER BY table_name, constraint_type, constraint_name
+    // Check for unique indexes (Prisma creates unique constraints as unique indexes)
+    // We check pg_indexes for the index name, then verify it's actually unique in pg_index
+    const indexes = await prisma.$queryRaw<Array<{ indexname: string; tablename: string }>>`
+      SELECT indexname, tablename
+      FROM pg_indexes
+      WHERE schemaname = 'public'
+        AND indexname IN ('Player_nhlId_key', 'GameLog_playerId_gameId_key')
+      ORDER BY tablename, indexname
     `;
     
-    // Verify critical unique constraints
-    const hasPlayerNhlIdUnique = constraints.some(
-      c => c.table_name === 'Player' && c.constraint_name === 'Player_nhlId_key'
-    );
+    // Now verify they are actually unique indexes
+    const indexNames = indexes.map(idx => idx.indexname);
+    const uniqueChecks = await prisma.$queryRaw<Array<{ indexname: string; isunique: boolean }>>`
+      SELECT 
+        c.relname as indexname,
+        idx.indisunique as isunique
+      FROM pg_class c
+      INNER JOIN pg_index idx ON idx.indexrelid = c.oid
+      INNER JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relname IN ('Player_nhlId_key', 'GameLog_playerId_gameId_key')
+    `;
     
-    if (!hasPlayerNhlIdUnique) {
+    const uniqueMap = new Map<string, boolean>();
+    uniqueChecks.forEach(check => {
+      uniqueMap.set(check.indexname, check.isunique);
+    });
+    
+    // Verify Player.nhlId unique constraint
+    const playerIndex = indexes.find(idx => idx.indexname === 'Player_nhlId_key');
+    if (!playerIndex || !uniqueMap.get('Player_nhlId_key')) {
       addResult('Constraint - Player.nhlId unique', 'fail', 'Player.nhlId should have a unique constraint');
     } else {
       addResult('Constraint - Player.nhlId unique', 'pass', 'Player.nhlId has unique constraint');
     }
     
-    const hasGameLogUnique = constraints.some(
-      c => c.table_name === 'GameLog' && c.constraint_name === 'GameLog_playerId_gameId_key'
-    );
-    
-    if (!hasGameLogUnique) {
+    // Verify GameLog unique constraint
+    const gameLogIndex = indexes.find(idx => idx.indexname === 'GameLog_playerId_gameId_key');
+    if (!gameLogIndex || !uniqueMap.get('GameLog_playerId_gameId_key')) {
       addResult('Constraint - GameLog unique', 'fail', 'GameLog should have unique constraint on (playerId, gameId)');
     } else {
       addResult('Constraint - GameLog unique', 'pass', 'GameLog has unique constraint on (playerId, gameId)');
