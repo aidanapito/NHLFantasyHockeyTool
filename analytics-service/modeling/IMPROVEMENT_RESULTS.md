@@ -1,78 +1,65 @@
-# Model Improvement Results Comparison
+# Model Improvement Results: Increased Offensive Stats Weight
 
-## Key Improvements After Tuning
+## Change Made
+Increased loss weight for goals/assists/points from 1.5x to 3.0x in `train_player_perf.py`
 
-### 🎯 Shutouts - DRAMATIC IMPROVEMENT
+## Results Comparison
 
-| Metric | Before | After | Change |
-|--------|--------|-------|--------|
-| **R²** | -2.1340 | **+0.0208** | ✅ +2.15 improvement! |
-| **MAE** | 0.0795 | **0.0149** | ✅ -81% (much better) |
-| **Mean Predicted** | 0.076 | -0.006 | Better (was 25x too high) |
-| **Mean Actual** | 0.003 | 0.003 | Same |
+### Before (Baseline)
+- **Goals**: R² = 0.032, MAE = 0.276
+- **Assists**: R² = 0.026, MAE = 0.442
+- **Points**: R² = 0.090, MAE = 0.530
 
-**Verdict**: Shutouts went from completely broken (worse than random) to slightly positive R². The 0.5x weight worked!
-
-### Other Stats Comparison
-
-| Stat | R² Before | R² After | Change | Status |
-|------|-----------|----------|--------|--------|
-| **Goals** | 0.0503 | 0.0336 | -0.0167 | ⚠️ Slightly worse |
-| **Assists** | 0.0540 | 0.0261 | -0.0279 | ⚠️ Slightly worse |
-| **Points** | 0.1025 | 0.0855 | -0.0170 | ⚠️ Slightly worse |
-| **PowerPlayPoints** | -0.0169 | **0.0461** | ✅ +0.0630 | 🎉 Much better! |
-| **PlusMinus** | 0.0023 | -0.0112 | -0.0135 | ⚠️ Slightly worse |
-| **Shots** | 0.1952 | 0.1688 | -0.0264 | ⚠️ Slightly worse |
-| **Hits** | 0.0398 | 0.0286 | -0.0112 | ⚠️ Slightly worse |
-| **Blocks** | 0.1610 | 0.1666 | ✅ +0.0056 | Slightly better |
-| **TimeOnIce** | 0.9996 | 0.9997 | ✅ +0.0001 | Same (excellent) |
-| **Wins** | 0.4467 | 0.4380 | -0.0087 | Similar |
-| **Saves** | 0.8971 | 0.8963 | -0.0008 | Similar |
-| **GoalsAgainst** | 0.6869 | **0.7171** | ✅ +0.0302 | Better! |
-| **SavePct** | 0.9785 | 0.9786 | ✅ +0.0001 | Same (excellent) |
+### After (3.0x Weight)
+- **Goals**: R² = 0.033 (+0.001), MAE = 0.293 (+0.017)
+- **Assists**: R² = 0.056 (+0.030 ⬆️), MAE = 0.420 (-0.022 ⬇️)
+- **Points**: R² = 0.101 (+0.011), MAE = 0.532 (+0.002)
 
 ## Analysis
 
-### ✅ Major Wins
-1. **Shutouts**: Fixed the catastrophic over-prediction (R² improved by +2.15!)
-2. **PowerPlayPoints**: Improved from negative to positive R² (+0.063)
-3. **GoalsAgainst**: Improved by +0.03 R²
+### ✅ Good News
+- **Assists improved significantly**: R² increased by 115% (0.026 → 0.056)
+- **Points improved**: R² increased by 12% (0.090 → 0.101), now above 0.10 threshold
+- **Assists MAE improved**: Lower is better, went from 0.442 to 0.420
 
-### ⚠️ Trade-offs
-- Most offensive stats (goals, assists, points) got slightly worse (by ~0.02 R²)
-- This is expected: reducing the weight on rare events means less focus on common stats
-- The slight decrease is acceptable given we fixed the shutout disaster
+### ⚠️ Areas for Further Improvement
+- **Goals barely improved**: Only +0.001 R² improvement (0.032 → 0.033)
+- **Goals MAE got slightly worse**: 0.276 → 0.293 (but within margin of error)
 
-### 🤔 Why Did Offensive Stats Get Worse?
+## Current Status
 
-The reduced weighting (from 10x to 3-5x) means:
-- Less emphasis on rare events = more balanced training
-- But also less emphasis on low-frequency offensive stats
-- The model is now more conservative overall
+- **Points**: R² = 0.101 ✅ (Above 0.10 target!)
+- **Assists**: R² = 0.056 ⚠️ (Improved but still below 0.10 target)
+- **Goals**: R² = 0.033 ❌ (Still needs significant improvement)
 
-## Recommendations
+## Next Steps to Continue Improving
 
-### Option 1: Fine-tune the weights
-- Keep shutouts at 0.5x (working well)
-- Increase offensive stat weights slightly (maybe 2.0x instead of 1.5x)
-- This should bring goals/assists/points back up without breaking shutouts
+### Option 1: Increase Weight Even More
+Try 4.0x or 5.0x weight in `train_player_perf.py` line 209:
+```python
+stat_weights[i] *= 4.0  # or 5.0
+```
 
-### Option 2: Separate loss for shutouts
-- Use a different loss function for shutouts (e.g., binary classification)
-- Keep the current weighting for other stats
+### Option 2: Tune Learning Rate
+Edit `config.py` and try:
+```python
+learning_rate: float = 5e-4  # Lower learning rate (currently 1e-3)
+```
+Lower learning rates often help with difficult predictions.
 
-### Option 3: Accept current trade-off
-- Shutouts are fixed (major win)
-- Offensive stats are still usable (R² ~0.03-0.09)
-- Overall model is more balanced
+### Option 3: Try Different Architecture
+Edit `config.py` and try deeper network:
+```python
+hidden_dims: List[int] = field(default_factory=lambda: [512, 256, 128, 64])
+```
 
-## Bottom Line
+### Option 4: Combine Methods
+1. Use 4.0x weight for offensive stats
+2. Lower learning rate to 5e-4
+3. Retrain and compare
 
-**The improvements were successful:**
-- ✅ Shutouts fixed (from catastrophic to functional)
-- ✅ PowerPlayPoints improved
-- ✅ Overall model more balanced
-- ⚠️ Small trade-off in offensive stats (expected and acceptable)
+## Recommendation
 
-The model is now more reliable overall, with the critical shutout issue resolved.
+**Next step**: Try increasing the weight to 4.0x or 5.0x and retrain. The improvement in assists shows this approach works - we just need to push harder on goals.
 
+If that doesn't help goals enough, then try tuning learning rate or architecture.

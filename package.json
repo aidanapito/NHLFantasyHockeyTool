@@ -11,7 +11,8 @@
     "espn-login": "tsx scripts/espn-login.ts",
     "import-moneypuck": "tsx scripts/import-moneypuck.ts",
     "collect-game-logs": "tsx scripts/collect-game-logs.ts",
-    "validate-db": "tsx scripts/validate-database.ts"
+    "validate-db": "tsx scripts/validate-database.ts",
+    "check-duplicate-players": "tsx scripts/check-duplicate-players.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.18.0",

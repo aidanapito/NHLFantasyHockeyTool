@@ -206,7 +206,7 @@ def train(cfg: ExperimentConfig | None = None) -> None:
             
             # Key offensive stats get more weight - focus on improving these critical stats
             if stat in ['goals', 'assists', 'points']:
-                stat_weights[i] *= 3.0  # Increased from 1.5 to 3.0 to prioritize offensive stats
+                stat_weights[i] *= 5.0  # Increased from 1.5 to 5.0 to prioritize offensive stats
         
         weighted_mse = (mse_per_stat * stat_weights.unsqueeze(0)).mean()
         return weighted_mse
