@@ -64,22 +64,30 @@ export default function LeagueSyncButton() {
       let nhlResult: any = null
       let nhlOk = false
       if (nhlRes.status === 'fulfilled') {
+        const response = nhlRes.value
+        nhlOk = response.ok
         try {
-          nhlResult = await nhlRes.value.json()
-          nhlOk = nhlRes.value.ok
+          nhlResult = await response.json()
         } catch (e) {
-          // Failed to parse NHL response
+          // Failed to parse NHL response - might be HTML error page
+          if (!nhlOk) {
+            nhlResult = { error: `HTTP ${response.status}: ${response.statusText}` }
+          }
         }
       }
 
       let leagueResult: any = null
       let leagueOk = false
       if (leagueRes.status === 'fulfilled') {
+        const response = leagueRes.value
+        leagueOk = response.ok
         try {
-          leagueResult = await leagueRes.value.json()
-          leagueOk = leagueRes.value.ok
+          leagueResult = await response.json()
         } catch (e) {
-          // Failed to parse league response
+          // Failed to parse league response - might be HTML error page
+          if (!leagueOk) {
+            leagueResult = { error: `HTTP ${response.status}: ${response.statusText}` }
+          }
         }
       }
 
