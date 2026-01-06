@@ -47,43 +47,95 @@ export default function LeagueSyncButton() {
     setMessage(null)
 
     try {
-      const res = await fetch('/api/fantasy/league/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      // Refresh both NHL stats and league data in parallel
+      const [nhlRes, leagueRes] = await Promise.allSettled([
+        fetch('/api/refresh-stats', { method: 'POST' }),
+        fetch('/api/fantasy/league/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            leagueId: leagueIdInput.trim(),
+            season: seasonInput.trim() || undefined,
+          }),
+        }),
+      ])
+
+      // Parse responses
+      let nhlResult: any = null
+      let nhlOk = false
+      if (nhlRes.status === 'fulfilled') {
+        try {
+          nhlResult = await nhlRes.value.json()
+          nhlOk = nhlRes.value.ok
+        } catch (e) {
+          // Failed to parse NHL response
+        }
+      }
+
+      let leagueResult: any = null
+      let leagueOk = false
+      if (leagueRes.status === 'fulfilled') {
+        try {
+          leagueResult = await leagueRes.value.json()
+          leagueOk = leagueRes.value.ok
+        } catch (e) {
+          // Failed to parse league response
+        }
+      }
+
+      // Build summary message
+      const summaryParts: string[] = []
+      const errors: string[] = []
+
+      if (nhlOk) {
+        summaryParts.push('NHL stats refreshed')
+      } else {
+        const errorMsg = nhlResult?.error || nhlResult?.message || 'NHL stats refresh failed'
+        errors.push(errorMsg)
+      }
+
+      if (leagueOk && leagueResult) {
+        summaryParts.push(`Updated ${leagueResult.updatedTeams ?? 0} teams`)
+        if (leagueResult.updatedPlayers) {
+          summaryParts.push(`${leagueResult.updatedPlayers} players`)
+        }
+        setLeagueName(leagueResult.leagueName)
+        if (typeof leagueResult.refreshedAt === 'string') {
+          setLastSyncedAt(leagueResult.refreshedAt)
+        } else {
+          setLastSyncedAt(new Date().toISOString())
+        }
+
+        const settings: LeagueSettings = {
           leagueId: leagueIdInput.trim(),
           season: seasonInput.trim() || undefined,
-        }),
-      })
-
-      const data = await res.json()
-
-      if (!res.ok) {
-        throw new Error(data?.error || data?.message || 'Failed to refresh league')
-      }
-
-      setStatus('success')
-      const summaryParts = [`Updated ${data.updatedTeams ?? 0} teams`]
-      if (data.updatedPlayers) summaryParts.push(`${data.updatedPlayers} players`)
-      setMessage(summaryParts.join(' • '))
-      setLeagueName(data.leagueName)
-      if (typeof data.refreshedAt === 'string') {
-        setLastSyncedAt(data.refreshedAt)
+          leagueName: leagueResult.leagueName ?? leagueResult.league?.leagueName,
+          fantasyLeagueId: leagueResult.league?.id,
+          lastSyncedAt: leagueResult.refreshedAt ?? new Date().toISOString(),
+        }
+        saveLeagueSettings(settings)
       } else {
-        setLastSyncedAt(new Date().toISOString())
+        const errorMsg = leagueResult?.error || leagueResult?.message || 'League refresh failed'
+        errors.push(errorMsg)
       }
 
-      const settings: LeagueSettings = {
-        leagueId: leagueIdInput.trim(),
-        season: seasonInput.trim() || undefined,
-        leagueName: data.leagueName ?? data.league?.leagueName,
-        fantasyLeagueId: data.league?.id,
-        lastSyncedAt: data.refreshedAt ?? new Date().toISOString(),
+      // Set status and message
+      if (errors.length > 0 && summaryParts.length === 0) {
+        // All failed
+        setStatus('error')
+        setMessage(errors.join(' • '))
+      } else if (errors.length > 0) {
+        // Partial success
+        setStatus('success')
+        setMessage([...summaryParts, ...errors].join(' • '))
+      } else {
+        // All succeeded
+        setStatus('success')
+        setMessage(summaryParts.join(' • '))
       }
-      saveLeagueSettings(settings)
     } catch (err: any) {
       setStatus('error')
-      setMessage(err?.message || 'Failed to refresh league')
+      setMessage(err?.message || 'Failed to refresh')
     }
   }
 
@@ -95,14 +147,14 @@ export default function LeagueSyncButton() {
         className="inline-flex items-center rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
       >
         <RefreshCw className="h-4 w-4 mr-2" />
-        Refresh League
+        Refresh
       </button>
 
       {open && (
         <div className="absolute right-0 mt-2 w-80 rounded-lg border border-gray-200 bg-white shadow-xl z-50">
-          <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
             <div>
-              <h3 className="text-sm font-semibold text-gray-900">Sync ESPN League</h3>
+              <h3 className="text-sm font-semibold text-gray-900">Refresh All Data</h3>
               {leagueName && (
                 <p className="text-xs text-gray-500 truncate">
                   Current: <span className="font-medium text-gray-700">{leagueName}</span>
@@ -163,13 +215,13 @@ export default function LeagueSyncButton() {
               disabled={status === 'loading'}
               className="inline-flex w-full items-center justify-center rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {status === 'loading' ? 'Refreshing...' : 'Refresh from ESPN'}
+              {status === 'loading' ? 'Refreshing...' : 'Refresh All'}
             </button>
           </form>
 
           <div className="px-4 py-3 border-t border-gray-100">
             <p className="text-xs text-gray-500">
-              Syncing here updates every page (team info, matchup analyzer, etc.) to use the latest ESPN rosters stored in the database.
+              Refreshes NHL stats and ESPN league data. Updates every page (team info, matchup analyzer, etc.) with the latest data.
             </p>
           </div>
         </div>
