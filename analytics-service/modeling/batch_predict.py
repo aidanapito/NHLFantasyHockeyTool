@@ -98,10 +98,18 @@ def main():
         print(f"[Batch Predict] Processing {len(predictions_requests)} predictions", file=sys.stderr)
         print(f"[Batch Predict] Sample player IDs in request: {sample_player_ids}", file=sys.stderr)
         
-        # Load base dataset once to check what player IDs exist
+        # Load base dataset and feature tables ONCE for all predictions (major performance optimization)
+        base = None
+        ftables = None
         if loaded_model:
             from .data_extraction import load_base_dataset
+            from .features import build_feature_tables
+            print(f"[Batch Predict] Loading dataset once for all {len(predictions_requests)} predictions...", file=sys.stderr)
             base = load_base_dataset(cfg.data)  # Pass cfg.data (DataConfig) not cfg (ExperimentConfig)
+            print(f"[Batch Predict] Building feature tables once for all predictions...", file=sys.stderr)
+            ftables = build_feature_tables(base, cfg.data)
+            print(f"[Batch Predict] Dataset and features loaded successfully", file=sys.stderr)
+            
             unique_player_ids_in_data = base.game_logs["player_id"].unique()
             print(f"[Batch Predict] Total unique player IDs in GameLog dataset: {len(unique_player_ids_in_data)}", file=sys.stderr)
             print(f"[Batch Predict] Sample player IDs in dataset: {unique_player_ids_in_data[:20].tolist()}", file=sys.stderr)
@@ -126,7 +134,13 @@ def main():
                     else:
                         print(f"[Batch Predict] Player ID {req_id}: Not found in Player table at all", file=sys.stderr)
         
+        # Process predictions with progress logging
+        total_predictions = len(predictions_requests)
         for idx, req in enumerate(predictions_requests):
+            # Log progress every 10 predictions
+            if (idx + 1) % 10 == 0 or idx == 0:
+                print(f"[Batch Predict] Processing prediction {idx + 1}/{total_predictions}...", file=sys.stderr)
+            
             try:
                 # Extract request parameters
                 player_id = int(req["player_id"])
@@ -153,9 +167,34 @@ def main():
                         })
                         continue
                 
-                # Make prediction (pass pre-loaded model if available)
-                if loaded_model:
-                    # Use the pre-loaded model for faster predictions
+                # Make prediction (pass pre-loaded model and dataset if available)
+                if loaded_model and base is not None and ftables is not None:
+                    # Use the pre-loaded model and dataset for much faster batch predictions
+                    from .inference import predict_game_for_player_with_model
+                    try:
+                        predicted_stats = predict_game_for_player_with_model(
+                            player_id=player_id,
+                            game_date=game_date,
+                            opponent_team=opponent_team,
+                            player_team=player_team,
+                            is_home=is_home,
+                            loaded_model=loaded_model,
+                            cfg=cfg,
+                            preloaded_base=base,
+                            preloaded_ftables=ftables
+                        )
+                    except AttributeError:
+                        # Fallback to regular function if new function doesn't exist
+                        predicted_stats = predict_game_for_player(
+                            player_id=player_id,
+                            game_date=game_date,
+                            opponent_team=opponent_team,
+                            player_team=player_team,
+                            is_home=is_home,
+                            cfg=cfg
+                        )
+                elif loaded_model:
+                    # Use the pre-loaded model but load dataset per prediction (slower)
                     from .inference import predict_game_for_player_with_model
                     try:
                         predicted_stats = predict_game_for_player_with_model(

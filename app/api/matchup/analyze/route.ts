@@ -90,6 +90,7 @@ export async function POST(request: NextRequest) {
 
     // Parse week start date if provided
     const weekStart = weekStartDate ? new Date(weekStartDate) : undefined;
+    console.log(`[Matchup API] Received weekStartDate: ${weekStartDate}, parsed as: ${weekStart?.toISOString()}`);
 
     // Fetch ESPN standings data if leagueId is provided
     let standingsData: any[] = []

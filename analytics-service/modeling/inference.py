@@ -12,16 +12,16 @@ import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 import torch
 
 from .config import ALL_TARGET_STATS, ExperimentConfig, artifact_paths, default_experiment_config
-from .data_extraction import load_base_dataset
+from .data_extraction import BaseDataset, load_base_dataset
 from .dataset import Encoders, PlayerGameDataset, fit_encoders
-from .features import build_feature_tables
+from .features import FeatureTables, build_feature_tables
 from .models import TabularModelConfig, TabularMultiTaskModel
 
 
@@ -259,6 +259,8 @@ def predict_game_for_player_with_model(
     is_home: bool,
     loaded_model: LoadedModel,
     cfg: Optional[ExperimentConfig] = None,
+    preloaded_base: Optional[BaseDataset] = None,
+    preloaded_ftables: Optional[FeatureTables] = None,
 ) -> Dict[str, float]:
     """
     Predict stats for a specific future game for a player, using a pre-loaded model.
@@ -272,6 +274,8 @@ def predict_game_for_player_with_model(
         is_home: Whether the player's team is playing at home
         loaded_model: Pre-loaded model and encoders
         cfg: Optional experiment config
+        preloaded_base: Optional pre-loaded base dataset (for batch predictions)
+        preloaded_ftables: Optional pre-loaded feature tables (for batch predictions)
         
     Returns:
         Dictionary of predicted stats (goals, assists, points, etc.)
@@ -288,8 +292,11 @@ def predict_game_for_player_with_model(
     else:
         game_date_obj = pd.to_datetime(game_date).date()
     
-    # Load base dataset and build features (this is still needed for player data)
-    base = load_base_dataset(cfg.data)
+    # Load base dataset and build features (reuse if provided for batch predictions)
+    if preloaded_base is not None:
+        base = preloaded_base
+    else:
+        base = load_base_dataset(cfg.data)
     
     # Check if player_id is actually an NHL ID by looking it up in the Player table
     # If the player_id doesn't match any Player.id, try to find it by nhlId
@@ -307,7 +314,11 @@ def predict_game_for_player_with_model(
             # Player doesn't exist in Player table at all
             print(f"Warning: player_id {player_id} not found in Player table (neither as id nor nhlId)", file=sys.stderr)
     
-    ftables = build_feature_tables(base, cfg.data)
+    # Reuse feature tables if provided, otherwise build them
+    if preloaded_ftables is not None:
+        ftables = preloaded_ftables
+    else:
+        ftables = build_feature_tables(base, cfg.data)
     
     # Filter to this player's historical games (strictly before game_date)
     features = ftables.features.copy()

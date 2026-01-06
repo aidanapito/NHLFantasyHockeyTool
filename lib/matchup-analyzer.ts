@@ -1052,6 +1052,9 @@ export async function analyzeWeeklyMatchupWithProjections(
   weekStartDate?: Date,
   standingsData?: any[]
 ): Promise<MatchupComparison> {
+  // Log the input weekStartDate
+  console.log(`[Matchup Projections] Input weekStartDate:`, weekStartDate?.toISOString(), weekStartDate);
+  
   // First get the base matchup analysis (current stats)
   const baseAnalysis = await analyzeWeeklyMatchup(
     team1Input,
@@ -1059,6 +1062,8 @@ export async function analyzeWeeklyMatchupWithProjections(
     weekStartDate,
     standingsData
   );
+  
+  console.log(`[Matchup Projections] Base analysis weekStart: ${baseAnalysis.weekStart}, weekEnd: ${baseAnalysis.weekEnd}`);
 
   // Build mapping from NHL IDs (used in matchup analysis) to internal DB player IDs (used in ML dataset)
   // When NHL IDs match players without game logs, we'll try to find better matches by name
@@ -1097,9 +1102,22 @@ export async function analyzeWeeklyMatchupWithProjections(
         },
         select: {
           id: true,
+          nhlId: true,
+          fullName: true,
         },
       });
       const hasLogsSet = new Set(playersWithLogs.map(p => p.id));
+      
+      console.log(`[Matchup Projections] ID mapping check: ${dbIdsToCheck.length} DB IDs checked, ${playersWithLogs.length} have game logs`);
+      if (playersWithLogs.length < dbIdsToCheck.length) {
+        const playersWithoutLogs = dbIdsToCheck.filter(id => !hasLogsSet.has(id));
+        console.warn(`[Matchup Projections] ${playersWithoutLogs.length} players have no game logs:`, 
+          playersWithoutLogs.slice(0, 10).map(id => {
+            const player = dbPlayers.find(p => p.id === id);
+            return `${id} (${player?.fullName || 'unknown'}, NHL ID: ${player?.nhlId || 'unknown'})`;
+          })
+        );
+      }
       
       // Check each mapped player to see if they have game logs
       // If not, try to find a player with the same name that DOES have game logs
@@ -1164,14 +1182,29 @@ export async function analyzeWeeklyMatchupWithProjections(
         }
       }
 
-      console.log('[Matchup Projections] NHL->DB ID map:', {
-        totalNhlIds: allNhlIds.length,
-        mapped: nhlIdToDbId.size,
-        sample: allNhlIds.slice(0, 5).map(id => ({
-          nhlId: id,
-          dbId: nhlIdToDbId.get(id),
-        })),
-      });
+  console.log('[Matchup Projections] NHL->DB ID map:', {
+    totalNhlIds: allNhlIds.length,
+    mapped: nhlIdToDbId.size,
+    unmapped: allNhlIds.length - nhlIdToDbId.size,
+    sample: allNhlIds.slice(0, 10).map(id => ({
+      nhlId: id,
+      dbId: nhlIdToDbId.get(id),
+      playerName: baseAnalysis.team1.playerBreakdown.find(p => p.playerId === id)?.playerName || 
+                  baseAnalysis.team2.playerBreakdown.find(p => p.playerId === id)?.playerName || 'unknown',
+    })),
+  });
+  
+  // Log unmapped players
+  const unmappedNhlIds = allNhlIds.filter(id => !nhlIdToDbId.has(id));
+  if (unmappedNhlIds.length > 0) {
+    console.warn(`[Matchup Projections] ${unmappedNhlIds.length} players have no DB ID mapping:`, 
+      unmappedNhlIds.slice(0, 10).map(id => {
+        const player = baseAnalysis.team1.playerBreakdown.find(p => p.playerId === id) || 
+                      baseAnalysis.team2.playerBreakdown.find(p => p.playerId === id);
+        return `${id} (${player?.playerName || 'unknown'})`;
+      })
+    );
+  }
     } catch (e) {
       console.error('[Matchup Projections] Failed to build NHL->DB ID map:', e);
     }
@@ -1197,24 +1230,37 @@ export async function analyzeWeeklyMatchupWithProjections(
 
   // Collect games for team1 players (all games in the week)
   let totalGamesBeforeFilter = 0;
+  let team1PlayersWithGames = 0;
+  let team1PlayersWithoutDbId = 0;
+  let team1GamesFilteredOut = 0;
+  
   for (const player of baseAnalysis.team1.playerBreakdown) {
     if (player.games && player.games.length > 0 && player.nhlTeam) {
+      team1PlayersWithGames++;
       totalGamesBeforeFilter += player.games.length;
       const nhlId = player.playerId;
       const dbId = nhlIdToDbId.get(nhlId);
       if (!dbId) {
+        team1PlayersWithoutDbId++;
         console.warn(`[Matchup Projections] No DB player.id for nhlId=${nhlId} (${player.playerName}, team1), skipping predictions for this player`);
+        // Log all games for this player to see what we're missing
+        console.warn(`[Matchup Projections] Player ${player.playerName} has ${player.games.length} games:`, 
+          player.games.map(g => `${g.date} ${g.isHome ? 'vs' : '@'} ${g.opponent}`).slice(0, 5));
         continue;
       }
       // Log the mapping for debugging
       if (predictionRequests.length < 5) {
-        console.log(`[Matchup Projections] Mapping: nhlId=${nhlId} (${player.playerName}) -> dbId=${dbId}`);
+        console.log(`[Matchup Projections] Team1 Mapping: nhlId=${nhlId} (${player.playerName}) -> dbId=${dbId}, games: ${player.games.length}`);
       }
       for (const game of player.games) {
-        const gameDate = new Date(game.date + 'T00:00:00');
-        gameDate.setHours(0, 0, 0, 0);
+        // Use string comparison for dates to avoid timezone issues
+        // game.date is already in YYYY-MM-DD format
+        const gameDateStr = game.date;
+        const weekStartStr = baseAnalysis.weekStart;
+        const weekEndStr = baseAnalysis.weekEnd;
+        
         // Include all games within the week boundaries (Monday to Sunday)
-        if (gameDate >= weekStartDateObj && gameDate <= weekEndDateObj) {
+        if (gameDateStr >= weekStartStr && gameDateStr <= weekEndStr) {
           predictionRequests.push({
             playerId: dbId,
             gameDate: game.date,
@@ -1222,29 +1268,50 @@ export async function analyzeWeeklyMatchupWithProjections(
             playerTeam: player.nhlTeam,
             isHome: game.isHome,
           });
+        } else {
+          team1GamesFilteredOut++;
+          if (team1GamesFilteredOut <= 5) {
+            // Log first few filtered-out games for debugging
+            console.log(`[Matchup Projections] Team1 game filtered out: ${gameDateStr} (week: ${weekStartStr} to ${weekEndStr}) for ${player.playerName}`);
+          }
         }
       }
     }
   }
+  
+  console.log(`[Matchup Projections] Team1 summary: ${team1PlayersWithGames} players with games, ${team1PlayersWithoutDbId} without DB ID, ${team1GamesFilteredOut} games filtered out`);
+  
+  let team2PlayersWithGames = 0;
+  let team2PlayersWithoutDbId = 0;
+  let team2GamesFilteredOut = 0;
   
   for (const player of baseAnalysis.team2.playerBreakdown) {
     if (player.games && player.games.length > 0 && player.nhlTeam) {
+      team2PlayersWithGames++;
       totalGamesBeforeFilter += player.games.length;
       const nhlId = player.playerId;
       const dbId = nhlIdToDbId.get(nhlId);
       if (!dbId) {
+        team2PlayersWithoutDbId++;
         console.warn(`[Matchup Projections] No DB player.id for nhlId=${nhlId} (${player.playerName}, team2), skipping predictions for this player`);
+        // Log all games for this player to see what we're missing
+        console.warn(`[Matchup Projections] Player ${player.playerName} has ${player.games.length} games:`, 
+          player.games.map(g => `${g.date} ${g.isHome ? 'vs' : '@'} ${g.opponent}`).slice(0, 5));
         continue;
       }
       // Log the mapping for debugging
       if (predictionRequests.length < 5) {
-        console.log(`[Matchup Projections] Mapping: nhlId=${nhlId} (${player.playerName}) -> dbId=${dbId}`);
+        console.log(`[Matchup Projections] Team2 Mapping: nhlId=${nhlId} (${player.playerName}) -> dbId=${dbId}, games: ${player.games.length}`);
       }
       for (const game of player.games) {
-        const gameDate = new Date(game.date + 'T00:00:00');
-        gameDate.setHours(0, 0, 0, 0);
+        // Use string comparison for dates to avoid timezone issues
+        // game.date is already in YYYY-MM-DD format
+        const gameDateStr = game.date;
+        const weekStartStr = baseAnalysis.weekStart;
+        const weekEndStr = baseAnalysis.weekEnd;
+        
         // Include all games within the week boundaries (Monday to Sunday)
-        if (gameDate >= weekStartDateObj && gameDate <= weekEndDateObj) {
+        if (gameDateStr >= weekStartStr && gameDateStr <= weekEndStr) {
           predictionRequests.push({
             playerId: dbId,
             gameDate: game.date,
@@ -1252,17 +1319,53 @@ export async function analyzeWeeklyMatchupWithProjections(
             playerTeam: player.nhlTeam,
             isHome: game.isHome,
           });
+        } else {
+          team2GamesFilteredOut++;
+          if (team2GamesFilteredOut <= 5) {
+            console.log(`[Matchup Projections] Team2 game filtered out: ${gameDateStr} (week: ${weekStartStr} to ${weekEndStr}) for ${player.playerName}`);
+          }
         }
       }
     }
   }
   
+  console.log(`[Matchup Projections] Team2 summary: ${team2PlayersWithGames} players with games, ${team2PlayersWithoutDbId} without DB ID, ${team2GamesFilteredOut} games filtered out`);
+  
   console.log(`[Matchup Projections] Total games in week: ${totalGamesBeforeFilter}, Games to project: ${predictionRequests.length}`);
+  console.log(`[Matchup Projections] Week boundaries: ${baseAnalysis.weekStart} to ${baseAnalysis.weekEnd}`);
+  
+  // Log sample prediction requests
+  if (predictionRequests.length > 0) {
+    console.log(`[Matchup Projections] Sample prediction requests (first 5):`, 
+      predictionRequests.slice(0, 5).map(req => ({
+        playerId: req.playerId,
+        gameDate: req.gameDate,
+        playerTeam: req.playerTeam,
+        opponentTeam: req.opponentTeam,
+      }))
+    );
+  }
 
   // If no games to predict, return base analysis without projections
   if (predictionRequests.length === 0) {
     console.warn(`[Matchup Projections] No games found to predict in week ${baseAnalysis.weekStart} to ${baseAnalysis.weekEnd}`);
     console.warn(`[Matchup Projections] Team1 players: ${baseAnalysis.team1.playerBreakdown.length}, Team2 players: ${baseAnalysis.team2.playerBreakdown.length}`);
+    
+    // Log detailed breakdown of why no games were found
+    const team1GamesCount = baseAnalysis.team1.playerBreakdown.reduce((sum, p) => sum + (p.games?.length || 0), 0);
+    const team2GamesCount = baseAnalysis.team2.playerBreakdown.reduce((sum, p) => sum + (p.games?.length || 0), 0);
+    console.warn(`[Matchup Projections] Team1 total games: ${team1GamesCount}, Team2 total games: ${team2GamesCount}`);
+    console.warn(`[Matchup Projections] Team1 players without DB ID: ${team1PlayersWithoutDbId}, Team2 players without DB ID: ${team2PlayersWithoutDbId}`);
+    console.warn(`[Matchup Projections] Team1 games filtered out: ${team1GamesFilteredOut}, Team2 games filtered out: ${team2GamesFilteredOut}`);
+    console.warn(`[Matchup Projections] Week boundaries: ${baseAnalysis.weekStart} to ${baseAnalysis.weekEnd}`);
+    
+    // Log sample games to see what dates we have
+    const sampleGames = [
+      ...baseAnalysis.team1.playerBreakdown.slice(0, 5).flatMap(p => p.games?.slice(0, 2) || []),
+      ...baseAnalysis.team2.playerBreakdown.slice(0, 5).flatMap(p => p.games?.slice(0, 2) || []),
+    ];
+    console.warn(`[Matchup Projections] Sample game dates:`, sampleGames.map(g => g ? `${g.date} (${g.isHome ? 'vs' : '@'} ${g.opponent})` : null).filter(Boolean));
+    
     return baseAnalysis;
   }
   
@@ -1365,13 +1468,34 @@ export async function analyzeWeeklyMatchupWithProjections(
     const predictions = data.predictions || [];
     const errors = data.errors || [];
     
+    console.log(`[Matchup Projections] API response received. Status: ${response.status}`);
     console.log(`[Matchup Projections] Received ${predictions.length} predictions from API`);
+    console.log(`[Matchup Projections] API returned ${errors.length} errors`);
+    
     if (errors.length > 0) {
-      console.warn(`[Matchup Projections] API returned ${errors.length} errors:`, errors);
+      console.warn(`[Matchup Projections] API errors (first 10):`, errors.slice(0, 10));
     }
+    
     if (predictions.length === 0) {
-      console.warn(`[Matchup Projections] No predictions returned. Errors:`, errors);
-      console.warn(`[Matchup Projections] Full API response:`, JSON.stringify(data, null, 2));
+      console.error(`[Matchup Projections] No predictions returned!`);
+      console.error(`[Matchup Projections] Errors:`, errors);
+      console.error(`[Matchup Projections] Full API response keys:`, Object.keys(data));
+      console.error(`[Matchup Projections] API response preview:`, JSON.stringify(data, null, 2).substring(0, 1000));
+      
+      // If we have errors but no predictions, return base analysis
+      if (errors.length > 0) {
+        console.error(`[Matchup Projections] Returning base analysis due to prediction errors`);
+        return baseAnalysis;
+      }
+    } else {
+      console.log(`[Matchup Projections] Sample prediction (first):`, {
+        playerId: predictions[0]?.playerId,
+        gameDate: predictions[0]?.gameDate,
+        statsKeys: predictions[0]?.stats ? Object.keys(predictions[0].stats) : null,
+        sampleStats: predictions[0]?.stats ? Object.fromEntries(
+          Object.entries(predictions[0].stats).slice(0, 5)
+        ) : null,
+      });
     }
 
     // Create a map of player-game predictions

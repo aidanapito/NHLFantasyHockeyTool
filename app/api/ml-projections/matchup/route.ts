@@ -139,11 +139,19 @@ export async function POST(request: NextRequest) {
     let stderr = '';
 
     pythonProcess.stdout.on('data', (data) => {
-      stdout += data.toString();
+      const chunk = data.toString();
+      stdout += chunk;
+      // Log chunks as they come in for long-running processes
+      if (stdout.length < 1000) {
+        console.log(`[Batch Prediction API] Python stdout chunk: ${chunk.substring(0, 200)}`);
+      }
     });
 
     pythonProcess.stderr.on('data', (data) => {
-      stderr += data.toString();
+      const chunk = data.toString();
+      stderr += chunk;
+      // Log stderr in real-time for debugging
+      console.log(`[Batch Prediction API] Python stderr: ${chunk.substring(0, 500)}`);
     });
 
     // Wait for process to complete with timeout
@@ -164,22 +172,31 @@ export async function POST(request: NextRequest) {
 
     // Log stderr for debugging (contains warnings about missing players, etc.)
     if (stderr && stderr.trim().length > 0) {
-      console.log(`[Batch Prediction API] Python stderr output:\n${stderr}`);
+      console.log(`[Batch Prediction API] Python stderr output (full):\n${stderr}`);
+    } else {
+      console.log(`[Batch Prediction API] No stderr output from Python process`);
     }
 
     // Check if we got any output at all
+    console.log(`[Batch Prediction API] Python process completed. Exit code: ${exitCode}`);
+    console.log(`[Batch Prediction API] stdout length: ${stdout.length}, stderr length: ${stderr.length}`);
+    
     if (!stdout || stdout.trim().length === 0) {
       console.error(`[Batch Prediction API] No output from Python process`);
       console.error(`[Batch Prediction API] Exit code: ${exitCode}`);
-      console.error(`[Batch Prediction API] stderr: ${stderr}`);
+      console.error(`[Batch Prediction API] stderr: ${stderr.substring(0, 2000)}`);
       return NextResponse.json(
         {
           error: 'No output from prediction script',
           details: stderr || 'Python process produced no output',
+          exitCode,
         },
         { status: 500 }
       );
     }
+    
+    // Log first part of stdout to see what we got
+    console.log(`[Batch Prediction API] stdout preview (first 500 chars): ${stdout.substring(0, 500)}`);
 
     if (exitCode === -1) {
       console.error(`[Batch Prediction API] Python process timed out after 120 seconds`);
