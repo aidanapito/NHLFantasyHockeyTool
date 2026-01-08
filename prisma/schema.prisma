@@ -222,3 +222,42 @@ model PlayerProjection {
   @@index([season])
 }
 
+model TeamSeasonStats {
+  id                    Int      @id @default(autoincrement())
+  team                  String
+  season                String
+  asOfDate              DateTime
+  gamesPlayed           Int      @default(0)
+  // Offensive stats
+  goalsFor              Int      @default(0)
+  goalsPerGame          Float    @default(0)
+  shotsFor              Int      @default(0)
+  shotsPerGame          Float    @default(0)
+  shootingPct           Float    @default(0)
+  offensiveRating       Float    @default(50)  // 0-100 scale
+  goalsForRank          Int      @default(16)  // 1-32
+  // Defensive stats (what they allow)
+  goalsAgainst          Int      @default(0)
+  goalsAgainstPerGame   Float    @default(0)
+  shotsAgainst          Int      @default(0)
+  shotsAgainstPerGame   Float    @default(0)
+  defensiveRating       Float    @default(50)  // 0-100 scale, higher = better defense
+  goalsAgainstRank      Int      @default(16)  // 1 = most goals allowed, 32 = fewest
+  // Boom factor for opposing players
+  opponentBoomFactor    Float    @default(50)  // 0-100, higher = easier matchup
+  // ROS Strength of Schedule
+  rosGamesRemaining     Int?
+  rosSosRank            Int?                   // 1 = easiest schedule, 32 = hardest
+  rosSosRating          Float?                 // 0-100 scale
+  rosEasyGames          Int?                   // Games vs bottom-8 defenses
+  rosHardGames          Int?                   // Games vs top-8 defenses
+  avgOppGoalsAgainst    Float?                 // Avg goals allowed by ROS opponents
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([team, season, asOfDate])
+  @@index([team])
+  @@index([season])
+  @@index([opponentBoomFactor])
+}
+

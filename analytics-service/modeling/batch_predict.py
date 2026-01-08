@@ -33,12 +33,22 @@ Outputs JSON to stdout with predictions:
 
 from __future__ import annotations
 
-import json
+# Immediate output for debugging process spawning issues
 import sys
+print("[Batch Predict] Script starting - imports beginning...", file=sys.stderr)
+sys.stderr.flush()
+
+import json
 from datetime import datetime
 from typing import Dict, List, Any
 
+print("[Batch Predict] Basic imports done, loading inference module...", file=sys.stderr)
+sys.stderr.flush()
+
 from .inference import predict_game_for_player, default_experiment_config
+
+print("[Batch Predict] All imports complete", file=sys.stderr)
+sys.stderr.flush()
 
 
 def main():

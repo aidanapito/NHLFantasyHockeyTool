@@ -24,6 +24,10 @@ from .dataset import Encoders, PlayerGameDataset, fit_encoders
 from .features import FeatureTables, build_feature_tables
 from .models import TabularModelConfig, TabularMultiTaskModel
 
+# Global cache for team stats to avoid repeated database queries
+_team_stats_cache: dict = {}
+_team_stats_cache_season: str = ""
+
 
 @dataclass
 class LoadedModel:
@@ -389,6 +393,32 @@ def predict_game_for_player_with_model(
     future_row["season_start"] = future_row["game_date"].dt.to_period("Y").dt.start_time
     future_row["days_since_season_start"] = (future_row["game_date"] - future_row["season_start"]).dt.days
     future_row["day_of_week"] = future_row["game_date"].dt.weekday
+    
+    # =========================================================================
+    # STRENGTH OF SCHEDULE FEATURES
+    # =========================================================================
+    # Use SoS features from the last historical game if available (already computed during training)
+    # This avoids expensive database calls during inference
+    sos_cols = ["opp_season_goals_against_avg", "opp_season_shots_against_avg", 
+                "opp_defensive_rating", "opp_boom_factor"]
+    
+    # Check if SoS features exist in the historical data
+    has_sos_features = all(col in last_historical_row.columns for col in sos_cols)
+    
+    if has_sos_features:
+        # Copy SoS features from historical row (they represent typical opponent quality)
+        # These were computed during feature engineering and provide a baseline
+        for col in sos_cols:
+            if col in last_historical_row.columns:
+                val = last_historical_row[col].iloc[0]
+                future_row[col] = val if pd.notna(val) else (50.0 if "rating" in col or "factor" in col else 3.0)
+    else:
+        # SoS features not available from historical data, use league-average defaults
+        # This happens when model was trained without SoS features or for very new players
+        future_row["opp_season_goals_against_avg"] = 3.0  # League average
+        future_row["opp_season_shots_against_avg"] = 30.0  # League average  
+        future_row["opp_defensive_rating"] = 50.0  # Neutral
+        future_row["opp_boom_factor"] = 50.0  # Neutral
     
     # Drop helper columns that shouldn't be in features
     future_row = future_row.drop(columns=["game_date_dt", "season_start"], errors="ignore")

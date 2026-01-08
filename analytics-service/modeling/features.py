@@ -5,13 +5,15 @@ Key responsibilities:
 - Join Player and GameLog data
 - Compute rolling / recent-form features per player
 - Compute season-to-date aggregates
+- Compute opponent strength of schedule features
 - Prepare a clean feature/target table suitable for Torch models
 """
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -21,6 +23,76 @@ from .data_extraction import BaseDataset
 
 
 ROLLING_WINDOWS = (3, 5, 10)
+
+
+def _compute_team_season_defensive_stats(gl: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute season-level team defensive/offensive statistics.
+    
+    These provide a more stable view of team quality than rolling windows,
+    capturing the overall strength of schedule impact.
+    
+    Returns DataFrame with columns:
+        team, season, team_season_goals_against_avg, team_season_shots_against_avg,
+        team_defensive_rating, team_boom_factor
+    """
+    if gl.empty:
+        return pd.DataFrame()
+    
+    # Aggregate goals/shots for and against per team per season
+    # Goals FOR = what the team scores
+    team_offense = gl.groupby(["team", "season"]).agg({
+        "goals": "sum",
+        "shots": "sum",
+        "game_id": "nunique",
+    }).reset_index()
+    team_offense.columns = ["team", "season", "goals_for", "shots_for", "games_played"]
+    
+    # Goals AGAINST = what opponents score against this team
+    # This is the sum of goals scored BY opponents when playing AGAINST this team
+    team_defense = gl.groupby(["opponent_team", "season"]).agg({
+        "goals": "sum",
+        "shots": "sum",
+    }).reset_index()
+    team_defense.columns = ["team", "season", "goals_against", "shots_against"]
+    
+    # Merge offense and defense
+    team_stats = team_offense.merge(team_defense, on=["team", "season"], how="left")
+    team_stats["goals_against"] = team_stats["goals_against"].fillna(0)
+    team_stats["shots_against"] = team_stats["shots_against"].fillna(0)
+    
+    # Compute per-game rates
+    team_stats["team_season_goals_against_avg"] = np.where(
+        team_stats["games_played"] > 0,
+        team_stats["goals_against"] / team_stats["games_played"],
+        3.0  # League average fallback
+    )
+    team_stats["team_season_shots_against_avg"] = np.where(
+        team_stats["games_played"] > 0,
+        team_stats["shots_against"] / team_stats["games_played"],
+        30.0  # League average fallback
+    )
+    
+    # Compute rankings within each season
+    # Defensive rating: lower goals against = higher rating (better defense)
+    # We use percentile rank: 1 - percentile to make higher = better
+    team_stats["team_defensive_rating"] = team_stats.groupby("season")[
+        "team_season_goals_against_avg"
+    ].transform(lambda x: (1 - x.rank(pct=True)) * 100)
+    
+    # Boom factor: how likely are opposing players to boom against this team
+    # Higher goals against = higher boom factor (easier matchup for opponents)
+    team_stats["team_boom_factor"] = team_stats.groupby("season")[
+        "team_season_goals_against_avg"
+    ].transform(lambda x: x.rank(pct=True) * 100)
+    
+    # Log some stats for debugging
+    if not team_stats.empty:
+        print(f"[Features] Computed season defensive stats for {len(team_stats)} team-seasons", file=sys.stderr)
+        top_boom = team_stats.nlargest(3, "team_boom_factor")[["team", "season", "team_boom_factor"]]
+        print(f"[Features] Highest boom factor teams: {top_boom.to_dict('records')}", file=sys.stderr)
+    
+    return team_stats
 
 
 @dataclass
@@ -251,6 +323,54 @@ def build_feature_tables(
                 "opp_shots_against_avg_5", "opp_shots_against_avg_10"]
     gl[opp_cols] = gl[opp_cols].fillna(0.0)
     
+    # =========================================================================
+    # TEAM SEASON-LEVEL DEFENSIVE/OFFENSIVE RATINGS
+    # =========================================================================
+    # Compute season-to-date team defensive quality for strength of schedule
+    team_season_stats = _compute_team_season_defensive_stats(gl)
+    
+    if not team_season_stats.empty:
+        # Merge opponent's season-level defensive quality
+        gl = gl.merge(
+            team_season_stats[[
+                "team", "season",
+                "team_season_goals_against_avg",
+                "team_season_shots_against_avg",
+                "team_defensive_rating",
+                "team_boom_factor",
+            ]],
+            left_on=["opponent_team", "season"],
+            right_on=["team", "season"],
+            how="left",
+            suffixes=("", "_opp_season")
+        )
+        # Rename to indicate these are opponent season-level stats
+        gl = gl.rename(columns={
+            "team_season_goals_against_avg": "opp_season_goals_against_avg",
+            "team_season_shots_against_avg": "opp_season_shots_against_avg",
+            "team_defensive_rating": "opp_defensive_rating",
+            "team_boom_factor": "opp_boom_factor",
+        })
+        # Drop duplicate team column
+        if "team_opp_season" in gl.columns:
+            gl = gl.drop(columns=["team_opp_season"])
+        
+        # Fill missing values
+        sos_cols = ["opp_season_goals_against_avg", "opp_season_shots_against_avg",
+                    "opp_defensive_rating", "opp_boom_factor"]
+        for col in sos_cols:
+            if col in gl.columns:
+                if "rating" in col or "factor" in col:
+                    gl[col] = gl[col].fillna(50.0)  # Neutral rating
+                else:
+                    gl[col] = gl[col].fillna(3.0)  # League average ~3 goals
+    else:
+        # Add placeholder columns if no season stats available
+        gl["opp_season_goals_against_avg"] = 3.0
+        gl["opp_season_shots_against_avg"] = 30.0
+        gl["opp_defensive_rating"] = 50.0
+        gl["opp_boom_factor"] = 50.0
+    
     # Restart count features (games since last game, rest days)
     gl = gl.sort_values(["player_id", "game_date"]).reset_index(drop=True)
     gl["days_since_last_game"] = (
@@ -312,10 +432,15 @@ def build_feature_tables(
     feature_cols.extend([
         "opp_goals_avg_5", "opp_goals_avg_10", 
         "opp_shots_avg_5", "opp_shots_avg_10",
-        "opp_goals_against_avg_5", "opp_goals_against_avg_10",  # Opponent defensive strength
+        "opp_goals_against_avg_5", "opp_goals_against_avg_10",  # Opponent defensive strength (rolling)
         "opp_shots_against_avg_5", "opp_shots_against_avg_10",
         "days_since_last_game",
-        "is_goalie", "is_skater"
+        "is_goalie", "is_skater",
+        # Strength of Schedule features (season-level opponent quality)
+        "opp_season_goals_against_avg",  # Opponent's season goals-against per game
+        "opp_season_shots_against_avg",  # Opponent's season shots-against per game
+        "opp_defensive_rating",          # Opponent's defensive rating (0-100, higher = better D)
+        "opp_boom_factor",               # Boom potential (0-100, higher = easier matchup)
     ])
 
     features = gl[feature_cols].copy()
