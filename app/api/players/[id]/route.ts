@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+// Cache configuration - revalidate every 5 minutes (300 seconds)
+export const revalidate = 300; // 5 minutes
+
 /**
  * GET /api/players/[id]
  * 
@@ -9,6 +12,12 @@ import { prisma } from '@/lib/prisma';
  * - Current season stats
  * - ML projections
  * - Historical game logs (for trends)
+ * 
+ * Optimized with:
+ * - Parallel database queries
+ * - Reduced default game logs (10 instead of 30)
+ * - Selected fields only
+ * - API route caching
  */
 export async function GET(
   request: NextRequest,
@@ -19,18 +28,47 @@ export async function GET(
     const { searchParams } = new URL(request.url);
     const season = searchParams.get('season') || '20252026';
     const modelVersion = searchParams.get('modelVersion') || 'player_perf_v1';
-    const gameLogsLimit = parseInt(searchParams.get('gameLogsLimit') || '30');
+    // Reduced default from 30 to 10 since page only shows 10 initially
+    const gameLogsLimit = parseInt(searchParams.get('gameLogsLimit') || '10');
 
     // Try to find player by database ID first, then by NHL ID
     // This handles both cases since StatsDisplay uses NHL ID but we want to support both
     let player = await prisma.player.findUnique({
       where: { id: idParam },
+      select: {
+        id: true,
+        nhlId: true,
+        firstName: true,
+        lastName: true,
+        fullName: true,
+        position: true,
+        team: true,
+        jerseyNumber: true,
+        headshot: true,
+        birthDate: true,
+        height: true,
+        weight: true,
+      },
     });
 
     // If not found by database ID, try NHL ID
     if (!player) {
       player = await prisma.player.findUnique({
         where: { nhlId: idParam },
+        select: {
+          id: true,
+          nhlId: true,
+          firstName: true,
+          lastName: true,
+          fullName: true,
+          position: true,
+          team: true,
+          jerseyNumber: true,
+          headshot: true,
+          birthDate: true,
+          height: true,
+          weight: true,
+        },
       });
     }
 
@@ -41,35 +79,107 @@ export async function GET(
       );
     }
 
-    // Fetch current season stats
-    const currentStats = await prisma.playerStats.findFirst({
-      where: {
-        playerId: player.id,
-        season,
-        gameType: 'regular',
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
+    // Parallel database queries for better performance
+    const [currentStats, projection, gameLogs] = await Promise.all([
+      // Fetch current season stats
+      prisma.playerStats.findFirst({
+        where: {
+          playerId: player.id,
+          season,
+          gameType: 'regular',
+        },
+        select: {
+          season: true,
+          gamesPlayed: true,
+          goals: true,
+          assists: true,
+          points: true,
+          shots: true,
+          shotsOnGoal: true,
+          hits: true,
+          blockedShots: true,
+          powerPlayPoints: true,
+          plusMinus: true,
+          pim: true,
+          timeOnIce: true,
+          timeOnIcePerGame: true,
+          wins: true,
+          saves: true,
+          shotsAgainst: true,
+          goalsAgainst: true,
+          savePct: true,
+          shutouts: true,
+          updatedAt: true,
+        },
+        orderBy: { updatedAt: 'desc' },
+      }),
 
-    // Fetch latest projection
-    const projection = await prisma.playerProjection.findFirst({
-      where: {
-        playerId: player.id,
-        modelVersion,
-      },
-      orderBy: { gameDate: 'desc' },
-    });
+      // Fetch latest projection
+      prisma.playerProjection.findFirst({
+        where: {
+          playerId: player.id,
+          modelVersion,
+        },
+        select: {
+          gameDate: true,
+          season: true,
+          modelVersion: true,
+          predictedGoals: true,
+          predictedAssists: true,
+          predictedPoints: true,
+          predictedShots: true,
+          predictedShotsOnGoal: true,
+          predictedHits: true,
+          predictedBlocks: true,
+          predictedPowerPlayPoints: true,
+          predictedPlusMinus: true,
+          predictedPim: true,
+          predictedToiSeconds: true,
+          predictedWins: true,
+          predictedSaves: true,
+          predictedShotsAgainst: true,
+          predictedGoalsAgainst: true,
+          predictedSavePct: true,
+          predictedShutouts: true,
+          createdAt: true,
+        },
+        orderBy: { gameDate: 'desc' },
+      }),
 
-    // Fetch recent game logs for trends
-    const gameLogs = await prisma.gameLog.findMany({
-      where: {
-        playerId: player.id,
-        season,
-        gameType: 'regular',
-      },
-      orderBy: { gameDate: 'desc' },
-      take: gameLogsLimit,
-    });
+      // Fetch recent game logs for trends (reduced default)
+      prisma.gameLog.findMany({
+        where: {
+          playerId: player.id,
+          season,
+          gameType: 'regular',
+        },
+        select: {
+          gameDate: true,
+          opponentTeam: true,
+          isHome: true,
+          goals: true,
+          assists: true,
+          points: true,
+          shots: true,
+          shotsOnGoal: true,
+          hits: true,
+          blocks: true,
+          powerPlayPoints: true,
+          plusMinus: true,
+          pim: true,
+          timeOnIce: true,
+          timeOnIceSeconds: true,
+          wins: true,
+          saves: true,
+          shotsAgainst: true,
+          goalsAgainst: true,
+          savePct: true,
+          shutouts: true,
+        },
+        orderBy: { gameDate: 'desc' },
+        take: gameLogsLimit,
+      }),
+    ]);
 
     // Calculate per-game averages from current stats
     const gamesPlayed = currentStats?.gamesPlayed || 0;
@@ -80,13 +190,11 @@ export async function GET(
       shots: (currentStats?.shots || 0) / gamesPlayed,
       shotsOnGoal: (currentStats?.shotsOnGoal || 0) / gamesPlayed,
       hits: (currentStats?.hits || 0) / gamesPlayed,
-      blocks: (currentStats?.blocks || 0) / gamesPlayed,
+      blocks: (currentStats?.blockedShots || 0) / gamesPlayed,
       powerPlayPoints: (currentStats?.powerPlayPoints || 0) / gamesPlayed,
       plusMinus: (currentStats?.plusMinus || 0) / gamesPlayed,
       pim: (currentStats?.pim || 0) / gamesPlayed,
-      timeOnIceSeconds: currentStats?.timeOnIceSeconds 
-        ? currentStats.timeOnIceSeconds / gamesPlayed 
-        : 0,
+      timeOnIceSeconds: 0, // PlayerStats doesn't store this, use timeOnIce string if needed
     } : null;
 
     // Calculate projection confidence based on games played and model performance
@@ -121,11 +229,11 @@ export async function GET(
         shots: currentStats.shots,
         shotsOnGoal: currentStats.shotsOnGoal,
         hits: currentStats.hits,
-        blocks: currentStats.blocks,
+        blocks: currentStats.blockedShots,
         powerPlayPoints: currentStats.powerPlayPoints,
         plusMinus: currentStats.plusMinus,
         pim: currentStats.pim,
-        timeOnIceSeconds: currentStats.timeOnIceSeconds,
+        timeOnIceSeconds: 0, // Not stored in PlayerStats, frontend can calculate if needed
         wins: currentStats.wins,
         saves: currentStats.saves,
         shotsAgainst: currentStats.shotsAgainst,
@@ -135,52 +243,14 @@ export async function GET(
         updatedAt: currentStats.updatedAt,
       } : null,
       perGameStats,
-      projection: projection ? {
-        gameDate: projection.gameDate,
-        season: projection.season,
-        modelVersion: projection.modelVersion,
-        predictedGoals: projection.predictedGoals,
-        predictedAssists: projection.predictedAssists,
-        predictedPoints: projection.predictedPoints,
-        predictedShots: projection.predictedShots,
-        predictedShotsOnGoal: projection.predictedShotsOnGoal,
-        predictedHits: projection.predictedHits,
-        predictedBlocks: projection.predictedBlocks,
-        predictedPowerPlayPoints: projection.predictedPowerPlayPoints,
-        predictedPlusMinus: projection.predictedPlusMinus,
-        predictedPim: projection.predictedPim,
-        predictedToiSeconds: projection.predictedToiSeconds,
-        predictedWins: projection.predictedWins,
-        predictedSaves: projection.predictedSaves,
-        predictedShotsAgainst: projection.predictedShotsAgainst,
-        predictedGoalsAgainst: projection.predictedGoalsAgainst,
-        predictedSavePct: projection.predictedSavePct,
-        predictedShutouts: projection.predictedShutouts,
-        createdAt: projection.createdAt,
-      } : null,
+      projection: projection,
       projectionConfidence,
-      gameLogs: gameLogs.map(log => ({
-        gameDate: log.gameDate,
-        opponentTeam: log.opponentTeam,
-        isHome: log.isHome,
-        goals: log.goals,
-        assists: log.assists,
-        points: log.points,
-        shots: log.shots,
-        shotsOnGoal: log.shotsOnGoal,
-        hits: log.hits,
-        blocks: log.blocks,
-        powerPlayPoints: log.powerPlayPoints,
-        plusMinus: log.plusMinus,
-        pim: log.pim,
-        timeOnIceSeconds: log.timeOnIceSeconds,
-        wins: log.wins,
-        saves: log.saves,
-        shotsAgainst: log.shotsAgainst,
-        goalsAgainst: log.goalsAgainst,
-        savePct: log.savePct,
-        shutouts: log.shutouts,
-      })),
+      gameLogs,
+    }, {
+      // Cache headers for better performance
+      headers: {
+        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
+      },
     });
   } catch (error: any) {
     console.error('Error fetching player details:', error);

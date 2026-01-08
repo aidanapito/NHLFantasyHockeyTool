@@ -159,10 +159,42 @@ export default function PlayerDetailPage() {
       <div className="min-h-screen bg-gray-50">
         <Header />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="flex items-center justify-center py-12">
-            <div className="text-center">
-              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
-              <p className="text-gray-600">Loading player data...</p>
+          {/* Back button skeleton */}
+          <div className="mb-6 h-6 w-16 bg-gray-200 rounded animate-pulse"></div>
+
+          {/* Player Header Skeleton */}
+          <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+            <div className="flex items-start gap-6">
+              <div className="w-32 h-32 bg-gray-200 rounded-lg animate-pulse"></div>
+              <div className="flex-1">
+                <div className="h-8 w-64 bg-gray-200 rounded mb-2 animate-pulse"></div>
+                <div className="h-5 w-48 bg-gray-200 rounded mb-4 animate-pulse"></div>
+                <div className="grid grid-cols-3 gap-4 mt-4">
+                  <div className="h-12 bg-gray-200 rounded animate-pulse"></div>
+                  <div className="h-12 bg-gray-200 rounded animate-pulse"></div>
+                  <div className="h-12 bg-gray-200 rounded animate-pulse"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Stats Table Skeleton */}
+          <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+            <div className="h-8 w-64 bg-gray-200 rounded mb-4 animate-pulse"></div>
+            <div className="space-y-3">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="h-12 bg-gray-200 rounded animate-pulse" style={{ animationDelay: `${i * 100}ms` }}></div>
+              ))}
+            </div>
+          </div>
+
+          {/* Game Logs Skeleton */}
+          <div className="bg-white rounded-lg shadow-sm p-6">
+            <div className="h-8 w-48 bg-gray-200 rounded mb-4 animate-pulse"></div>
+            <div className="space-y-2">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="h-10 bg-gray-200 rounded animate-pulse" style={{ animationDelay: `${i * 100}ms` }}></div>
+              ))}
             </div>
           </div>
         </div>

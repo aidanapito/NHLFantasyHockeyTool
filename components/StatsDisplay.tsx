@@ -961,6 +961,11 @@ export default function StatsDisplay() {
                       href={`/players/${player.playerId}`}
                       className="font-medium hover:underline cursor-pointer"
                       style={{ color: '#2563eb' }}
+                      prefetch={true}
+                      onMouseEnter={() => {
+                        // Prefetch the route on hover for faster navigation
+                        router.prefetch(`/players/${player.playerId}`);
+                      }}
                     >
                       {player.name}
                     </Link>
@@ -1192,6 +1197,11 @@ export default function StatsDisplay() {
                       href={`/players/${goalie.playerId}`}
                       className="font-medium hover:underline cursor-pointer"
                       style={{ color: '#2563eb' }}
+                      prefetch={true}
+                      onMouseEnter={() => {
+                        // Prefetch the route on hover for faster navigation
+                        router.prefetch(`/players/${goalie.playerId}`);
+                      }}
                     >
                       {goalie.name}
                     </Link>
