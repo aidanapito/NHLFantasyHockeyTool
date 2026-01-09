@@ -390,3 +390,4 @@ if __name__ == "__main__":
     else:
         print("No team data found - check database connection and season data")
 
+
