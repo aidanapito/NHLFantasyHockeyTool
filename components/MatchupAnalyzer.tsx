@@ -14,6 +14,17 @@ interface PlayerGame {
   date: string // YYYY-MM-DD
   opponent: string // Opponent team abbreviation
   isHome: boolean
+  opponentBoomFactor?: number // Boom factor (0-100, higher = easier matchup)
+  opponentDefensiveRating?: number // Defensive rating (0-100, higher = better defense)
+}
+
+interface TeamRosSchedule {
+  team: string
+  sosRank: number // 1 = easiest schedule
+  sosRating: number // 0-100, higher = easier
+  gamesRemaining: number
+  easyGames: number
+  hardGames: number
 }
 
 interface PlayerGameCount {
@@ -98,6 +109,8 @@ export default function MatchupAnalyzer() {
   const [error, setError] = useState<string | null>(null)
   const [standings, setStandings] = useState<any[]>([])
   const [showProjections, setShowProjections] = useState(false)
+  const [rosRankings, setRosRankings] = useState<Map<string, TeamRosSchedule>>(new Map())
+  const [opponentQuality, setOpponentQuality] = useState<Map<string, { boomFactor: number; defensiveRating: number }>>(new Map())
 
   const loadSavedTeams = useCallback(
     async (settings: LeagueSettings | null, showSpinner = true) => {
@@ -644,6 +657,133 @@ export default function MatchupAnalyzer() {
         setStandings(standingsData)
       }
 
+      // Fetch ROS rankings and opponent quality data
+      try {
+        // Use 20252026 as default season (current NHL season)
+        // Convert season format if needed (e.g., "2025" -> "20242025", "2026" -> "20252026")
+        let season = leagueSettings?.season || '20252026'
+        
+        // If season is in 4-digit format (e.g., "2025" or "2026"), convert to 8-digit format
+        if (season && season.length === 4 && /^\d{4}$/.test(season)) {
+          const year = parseInt(season)
+          season = `${year - 1}${year}`
+        } else if (!season || season.length < 8 || !/^\d{8}$/.test(season)) {
+          // Default to current season if format is unclear or invalid
+          season = '20252026'
+        }
+        
+        console.log('[MatchupAnalyzer] Using season:', season, '(from leagueSettings:', leagueSettings?.season, ')')
+        
+        const rosResponse = await fetch(`/api/strength-of-schedule?type=ros&season=${season}`, {
+          cache: 'no-store',
+        })
+        if (rosResponse.ok) {
+          const rosData = await rosResponse.json()
+          if (rosData.rankings) {
+            const rosMap = new Map<string, TeamRosSchedule>()
+            rosData.rankings.forEach((r: any) => {
+              rosMap.set(r.team, {
+                team: r.team,
+                sosRank: r.sosRank,
+                sosRating: parseFloat(r.sosRating),
+                gamesRemaining: r.gamesRemaining,
+                easyGames: r.easyGames,
+                hardGames: r.hardGames,
+              })
+            })
+            setRosRankings(rosMap)
+          }
+        }
+
+        // Fetch opponent quality for all unique opponents in the games
+        const uniqueOpponents = new Set<string>()
+        if (analysisData.team1?.playerBreakdown) {
+          analysisData.team1.playerBreakdown.forEach((player: PlayerGameCount) => {
+            player.games?.forEach(game => {
+              if (game.opponent) uniqueOpponents.add(game.opponent)
+            })
+          })
+        }
+        if (analysisData.team2?.playerBreakdown) {
+          analysisData.team2.playerBreakdown.forEach((player: PlayerGameCount) => {
+            player.games?.forEach(game => {
+              if (game.opponent) uniqueOpponents.add(game.opponent)
+            })
+          })
+        }
+
+        // Fetch opponent quality for each unique opponent
+        const qualityMap = new Map<string, { boomFactor: number; defensiveRating: number }>()
+        console.log('[MatchupAnalyzer] Fetching opponent quality for', uniqueOpponents.size, 'unique opponents')
+        
+        for (const opponent of uniqueOpponents) {
+          try {
+            const oppResponse = await fetch(`/api/strength-of-schedule?type=opponent&opponent=${opponent}&season=${season}`, {
+              cache: 'no-store',
+            })
+            if (oppResponse.ok) {
+              const oppData = await oppResponse.json()
+              if (oppData.features && oppData.features.oppBoomFactor !== undefined) {
+                const boomFactor = parseFloat(oppData.features.oppBoomFactor)
+                const defensiveRating = parseFloat(oppData.features.oppDefensiveRating)
+                
+                // Always set the values - even if they're 0 (valid defensive rating)
+                // Only skip if they're actually NaN (parsing failed)
+                if (!isNaN(boomFactor) && !isNaN(defensiveRating)) {
+                  qualityMap.set(opponent, {
+                    boomFactor,
+                    defensiveRating,
+                  })
+                  console.log(`[MatchupAnalyzer] ${opponent}: boomFactor=${boomFactor}, defensiveRating=${defensiveRating}`)
+                } else {
+                  console.warn(`[MatchupAnalyzer] ${opponent}: Failed to parse values`, {
+                    boomFactor: oppData.features.oppBoomFactor,
+                    defensiveRating: oppData.features.oppDefensiveRating,
+                  })
+                }
+              } else {
+                console.warn(`[MatchupAnalyzer] ${opponent}: No features in response`, oppData)
+              }
+            } else {
+              const errorText = await oppResponse.text()
+              console.warn(`[MatchupAnalyzer] ${opponent}: API returned ${oppResponse.status}`, errorText)
+            }
+          } catch (err) {
+            console.warn(`[MatchupAnalyzer] Failed to fetch opponent quality for ${opponent}:`, err)
+          }
+        }
+        
+        console.log('[MatchupAnalyzer] Loaded opponent quality for', qualityMap.size, 'teams')
+        setOpponentQuality(qualityMap)
+
+        // Add opponent quality data to games
+        if (analysisData.team1?.playerBreakdown) {
+          analysisData.team1.playerBreakdown.forEach((player: PlayerGameCount) => {
+            player.games?.forEach(game => {
+              const quality = qualityMap.get(game.opponent)
+              if (quality) {
+                game.opponentBoomFactor = quality.boomFactor
+                game.opponentDefensiveRating = quality.defensiveRating
+              }
+            })
+          })
+        }
+        if (analysisData.team2?.playerBreakdown) {
+          analysisData.team2.playerBreakdown.forEach((player: PlayerGameCount) => {
+            player.games?.forEach(game => {
+              const quality = qualityMap.get(game.opponent)
+              if (quality) {
+                game.opponentBoomFactor = quality.boomFactor
+                game.opponentDefensiveRating = quality.defensiveRating
+              }
+            })
+          })
+        }
+      } catch (rosErr) {
+        console.warn('Failed to fetch ROS rankings or opponent quality:', rosErr)
+        // Don't fail the whole analysis if ROS data fails
+      }
+
       setAnalysis(analysisData)
     } catch (err: any) {
       console.error('Error analyzing matchup:', err)
@@ -988,7 +1128,29 @@ export default function MatchupAnalyzer() {
 
           {/* Player Game Schedules */}
           <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-xl font-bold mb-4 text-gray-900">Player Game Schedules</h3>
+            <div className="flex items-start justify-between mb-4">
+              <h3 className="text-xl font-bold text-gray-900">Player Game Schedules</h3>
+              <div className="text-xs text-gray-600 bg-gray-50 px-3 py-2 rounded border border-gray-200 max-w-md">
+                <div className="font-semibold mb-1">Legend:</div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded border-2" style={{ borderColor: '#22c55e', backgroundColor: '#f0fdf4' }}></div>
+                    <span>🔥 Easy matchup (Boom Factor ≥60)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded border-2" style={{ borderColor: '#d1d5db', backgroundColor: '#ffffff' }}></div>
+                    <span>Average matchup (40-60)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded border-2" style={{ borderColor: '#ef4444', backgroundColor: '#fef2f2' }}></div>
+                    <span>⚠️ Hard matchup (Boom Factor ≤40)</span>
+                  </div>
+                  <div className="mt-2 pt-2 border-t border-gray-200">
+                    <span className="font-semibold">ROS:</span> Rest-of-season schedule rank (1=easiest, 32=hardest)
+                  </div>
+                </div>
+              </div>
+            </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Team 1 Players */}
               <div>
@@ -1007,7 +1169,7 @@ export default function MatchupAnalyzer() {
                         className="border border-gray-200 rounded-lg p-3 bg-gray-50"
                       >
                         <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-semibold text-sm text-gray-900">
                               {player.playerName}
                             </span>
@@ -1015,15 +1177,46 @@ export default function MatchupAnalyzer() {
                               {player.position}
                             </span>
                             {player.nhlTeam && (
-                              <span className="text-xs text-gray-600 px-2 py-0.5 bg-blue-100 text-blue-700 rounded">
-                                {player.nhlTeam}
-                              </span>
+                              <>
+                                <span className="text-xs text-gray-600 px-2 py-0.5 bg-blue-100 text-blue-700 rounded">
+                                  {player.nhlTeam}
+                                </span>
+                                {rosRankings.has(player.nhlTeam) && (
+                                  <span className="text-xs px-2 py-0.5 rounded font-medium"
+                                    style={{
+                                      backgroundColor: (() => {
+                                        const ros = rosRankings.get(player.nhlTeam)!
+                                        if (ros.sosRating >= 60) return '#dcfce7' // green-100
+                                        if (ros.sosRating >= 40) return '#fef3c7' // yellow-100
+                                        return '#fee2e2' // red-100
+                                      })(),
+                                      color: (() => {
+                                        const ros = rosRankings.get(player.nhlTeam)!
+                                        if (ros.sosRating >= 60) return '#166534' // green-800
+                                        if (ros.sosRating >= 40) return '#92400e' // yellow-800
+                                        return '#991b1b' // red-800
+                                      })(),
+                                    }}
+                                  >
+                                    ROS #{rosRankings.get(player.nhlTeam)!.sosRank}
+                                  </span>
+                                )}
+                              </>
                             )}
                           </div>
                           <span className="text-sm font-semibold text-gray-700">
                             {player.gamesCount || 0} {player.gamesCount === 1 ? 'game' : 'games'}
                           </span>
                         </div>
+                        {player.nhlTeam && rosRankings.has(player.nhlTeam) && (
+                          <div className="mb-2 text-xs text-gray-600">
+                            <span className="font-medium">ROS Schedule:</span>{' '}
+                            {(() => {
+                              const ros = rosRankings.get(player.nhlTeam)!
+                              return `Rank #${ros.sosRank} (${ros.sosRating.toFixed(0)}/100) - ${ros.easyGames} easy, ${ros.hardGames} hard games remaining`
+                            })()}
+                          </div>
+                        )}
                         {player.games && player.games.length > 0 ? (
                           <div className="flex flex-wrap gap-2 mt-2">
                             {player.games.map((game, idx) => {
@@ -1035,11 +1228,19 @@ export default function MatchupAnalyzer() {
                                 month: 'short',
                                 day: 'numeric',
                               })
+                              const boomFactor = game.opponentBoomFactor || opponentQuality.get(game.opponent)?.boomFactor || 50
+                              const isEasyMatchup = boomFactor >= 60
+                              const isHardMatchup = boomFactor <= 40
 
                               return (
                                 <div
                                   key={`${game.gameId}-${idx}`}
-                                  className="text-xs px-2 py-1 rounded bg-white border border-gray-300"
+                                  className="text-xs px-2 py-1.5 rounded bg-white border-2 relative"
+                                  style={{
+                                    borderColor: isEasyMatchup ? '#22c55e' : isHardMatchup ? '#ef4444' : '#d1d5db',
+                                    backgroundColor: isEasyMatchup ? '#f0fdf4' : isHardMatchup ? '#fef2f2' : '#ffffff',
+                                  }}
+                                  title={`Opponent Boom Factor: ${boomFactor.toFixed(1)}/100${isEasyMatchup ? ' (Easy matchup)' : isHardMatchup ? ' (Hard matchup)' : ' (Average)'}`}
                                 >
                                   <div className="font-medium text-gray-900">
                                     {dayAbbrev} {dateStr}
@@ -1047,6 +1248,19 @@ export default function MatchupAnalyzer() {
                                   <div className="text-gray-600">
                                     {game.isHome ? 'vs' : '@'} {game.opponent}
                                   </div>
+                                  {boomFactor !== 50 && (
+                                    <div className="mt-1 flex items-center gap-1">
+                                      <span 
+                                        className="text-[10px] font-medium px-1 py-0.5 rounded"
+                                        style={{
+                                          backgroundColor: isEasyMatchup ? '#86efac' : isHardMatchup ? '#fca5a5' : '#e5e7eb',
+                                          color: isEasyMatchup ? '#14532d' : isHardMatchup ? '#7f1d1d' : '#374151',
+                                        }}
+                                      >
+                                        {isEasyMatchup ? '🔥' : isHardMatchup ? '⚠️' : ''} {boomFactor.toFixed(0)}
+                                      </span>
+                                    </div>
+                                  )}
                                 </div>
                               )
                             })}
@@ -1076,7 +1290,7 @@ export default function MatchupAnalyzer() {
                         className="border border-gray-200 rounded-lg p-3 bg-gray-50"
                       >
                         <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-semibold text-sm text-gray-900">
                               {player.playerName}
                             </span>
@@ -1084,15 +1298,46 @@ export default function MatchupAnalyzer() {
                               {player.position}
                             </span>
                             {player.nhlTeam && (
-                              <span className="text-xs text-gray-600 px-2 py-0.5 bg-red-100 text-red-700 rounded">
-                                {player.nhlTeam}
-                              </span>
+                              <>
+                                <span className="text-xs text-gray-600 px-2 py-0.5 bg-red-100 text-red-700 rounded">
+                                  {player.nhlTeam}
+                                </span>
+                                {rosRankings.has(player.nhlTeam) && (
+                                  <span className="text-xs px-2 py-0.5 rounded font-medium"
+                                    style={{
+                                      backgroundColor: (() => {
+                                        const ros = rosRankings.get(player.nhlTeam)!
+                                        if (ros.sosRating >= 60) return '#dcfce7' // green-100
+                                        if (ros.sosRating >= 40) return '#fef3c7' // yellow-100
+                                        return '#fee2e2' // red-100
+                                      })(),
+                                      color: (() => {
+                                        const ros = rosRankings.get(player.nhlTeam)!
+                                        if (ros.sosRating >= 60) return '#166534' // green-800
+                                        if (ros.sosRating >= 40) return '#92400e' // yellow-800
+                                        return '#991b1b' // red-800
+                                      })(),
+                                    }}
+                                  >
+                                    ROS #{rosRankings.get(player.nhlTeam)!.sosRank}
+                                  </span>
+                                )}
+                              </>
                             )}
                           </div>
                           <span className="text-sm font-semibold text-gray-700">
                             {player.gamesCount || 0} {player.gamesCount === 1 ? 'game' : 'games'}
                           </span>
                         </div>
+                        {player.nhlTeam && rosRankings.has(player.nhlTeam) && (
+                          <div className="mb-2 text-xs text-gray-600">
+                            <span className="font-medium">ROS Schedule:</span>{' '}
+                            {(() => {
+                              const ros = rosRankings.get(player.nhlTeam)!
+                              return `Rank #${ros.sosRank} (${ros.sosRating.toFixed(0)}/100) - ${ros.easyGames} easy, ${ros.hardGames} hard games remaining`
+                            })()}
+                          </div>
+                        )}
                         {player.games && player.games.length > 0 ? (
                           <div className="flex flex-wrap gap-2 mt-2">
                             {player.games.map((game, idx) => {
@@ -1104,11 +1349,19 @@ export default function MatchupAnalyzer() {
                                 month: 'short',
                                 day: 'numeric',
                               })
+                              const boomFactor = game.opponentBoomFactor || opponentQuality.get(game.opponent)?.boomFactor || 50
+                              const isEasyMatchup = boomFactor >= 60
+                              const isHardMatchup = boomFactor <= 40
 
                               return (
                                 <div
                                   key={`${game.gameId}-${idx}`}
-                                  className="text-xs px-2 py-1 rounded bg-white border border-gray-300"
+                                  className="text-xs px-2 py-1.5 rounded bg-white border-2 relative"
+                                  style={{
+                                    borderColor: isEasyMatchup ? '#22c55e' : isHardMatchup ? '#ef4444' : '#d1d5db',
+                                    backgroundColor: isEasyMatchup ? '#f0fdf4' : isHardMatchup ? '#fef2f2' : '#ffffff',
+                                  }}
+                                  title={`Opponent Boom Factor: ${boomFactor.toFixed(1)}/100${isEasyMatchup ? ' (Easy matchup)' : isHardMatchup ? ' (Hard matchup)' : ' (Average)'}`}
                                 >
                                   <div className="font-medium text-gray-900">
                                     {dayAbbrev} {dateStr}
@@ -1116,6 +1369,19 @@ export default function MatchupAnalyzer() {
                                   <div className="text-gray-600">
                                     {game.isHome ? 'vs' : '@'} {game.opponent}
                                   </div>
+                                  {boomFactor !== 50 && (
+                                    <div className="mt-1 flex items-center gap-1">
+                                      <span 
+                                        className="text-[10px] font-medium px-1 py-0.5 rounded"
+                                        style={{
+                                          backgroundColor: isEasyMatchup ? '#86efac' : isHardMatchup ? '#fca5a5' : '#e5e7eb',
+                                          color: isEasyMatchup ? '#14532d' : isHardMatchup ? '#7f1d1d' : '#374151',
+                                        }}
+                                      >
+                                        {isEasyMatchup ? '🔥' : isHardMatchup ? '⚠️' : ''} {boomFactor.toFixed(0)}
+                                      </span>
+                                    </div>
+                                  )}
                                 </div>
                               )
                             })}

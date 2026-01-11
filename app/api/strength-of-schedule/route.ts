@@ -15,7 +15,7 @@ import {
  * 
  * Query params:
  * - type: 'defensive' | 'ros' | 'opponent' | 'player' (default: 'defensive')
- * - season: Season identifier (default: '20242025')
+ * - season: Season identifier (default: '20252026')
  * - team: Team abbreviation (required for type='opponent' or 'player')
  * - opponent: Opponent team (required for type='opponent' or 'player')
  * - asOfDate: Date to calculate stats up to (YYYY-MM-DD format, optional)
@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type') || 'defensive';
-    const season = searchParams.get('season') || '20242025';
+    const season = searchParams.get('season') || '20252026';
     const team = searchParams.get('team');
     const opponent = searchParams.get('opponent');
     const asOfDateStr = searchParams.get('asOfDate');
