@@ -154,10 +154,20 @@ async function analyzeTeamMatchup(
 
   // For each player, find their team's games
   let fallbackIdCounter = 1
+  
+  // Log unique teams in the schedule for debugging
+  const teamsInSchedule = new Set<string>()
+  for (const game of schedule) {
+    teamsInSchedule.add(game.homeTeam.abbrev)
+    teamsInSchedule.add(game.awayTeam.abbrev)
+  }
+  console.log(`[Matchup Analyzer] Teams in schedule: ${Array.from(teamsInSchedule).sort().join(', ')}`)
+  console.log(`[Matchup Analyzer] Active roster has ${activeRoster.length} players`)
 
   for (const rosterEntry of activeRoster) {
     if (!rosterEntry.team) {
       // Free agent or no team assigned
+      console.log(`[Matchup Analyzer] Player ${rosterEntry.fullName} has no team assigned`)
       playerBreakdown.push({
         playerId: rosterEntry.nhlId,
         playerName: rosterEntry.fullName,
@@ -407,11 +417,32 @@ export async function analyzeWeeklyMatchup(
   weekEnd.setDate(weekEnd.getDate() + 6)
   weekEnd.setHours(23, 59, 59, 999)
 
+  console.log(`[Matchup Analyzer] Week boundaries - start: ${formatDate(weekStart)} (${weekStart.toISOString()}), end: ${formatDate(weekEnd)} (${weekEnd.toISOString()})`)
+
   // Fetch schedule for the week
   const allGames = await fetchScheduleForWeek(weekStart)
+  console.log(`[Matchup Analyzer] Fetched ${allGames.length} total games for the week`)
   
   // Filter games to only include those within the week boundaries
   const schedule = filterGamesByWeek(allGames, weekStart, weekEnd)
+  console.log(`[Matchup Analyzer] After filtering: ${schedule.length} games in week range`)
+  
+  // Log first few games for debugging
+  if (schedule.length > 0) {
+    console.log(`[Matchup Analyzer] Sample games:`, schedule.slice(0, 3).map(g => ({
+      id: g.id,
+      date: g.gameDate,
+      home: g.homeTeam.abbrev,
+      away: g.awayTeam.abbrev,
+    })))
+  } else if (allGames.length > 0) {
+    console.log(`[Matchup Analyzer] All games were filtered out. Sample unfiltered games:`, allGames.slice(0, 3).map(g => ({
+      id: g.id,
+      date: g.gameDate,
+      home: g.homeTeam.abbrev,
+      away: g.awayTeam.abbrev,
+    })))
+  }
 
   // Analyze both teams
   const [team1Analysis, team2Analysis] = await Promise.all([

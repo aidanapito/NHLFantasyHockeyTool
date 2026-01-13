@@ -520,12 +520,14 @@ export interface NHLGame {
  */
 export async function fetchScheduleForDate(date: string): Promise<NHLGame[]> {
   try {
+    console.log(`[NHL API] Fetching schedule for date: ${date}`);
     const response = await apiRequest(() =>
       webApi.get(`/schedule/${date}`)
     );
 
     const games: NHLGame[] = [];
     const data = response.data;
+    console.log(`[NHL API] Response for ${date}: has gameWeek=${!!data?.gameWeek}, gameWeek length=${data?.gameWeek?.length || 0}`);
 
     // NHL Web API returns schedule in different formats
     // Handle both direct game array and gameWeek structure
@@ -602,12 +604,21 @@ export async function fetchScheduleForDate(date: string): Promise<NHLGame[]> {
       }
     }
 
+    console.log(`[NHL API] Extracted ${games.length} games for date ${date}`);
     return games;
   } catch (error) {
     console.error(`Error fetching schedule for date ${date}:`, error);
     // Return empty array instead of throwing to allow date range to continue
     return [];
   }
+}
+
+/**
+ * Parse a YYYY-MM-DD string as a local date (not UTC)
+ */
+function parseLocalDate(dateStr: string): Date {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day, 12, 0, 0); // Noon to avoid timezone edge cases
 }
 
 /**
@@ -620,8 +631,10 @@ export async function fetchScheduleForDateRange(
 ): Promise<NHLGame[]> {
   try {
     const allGames: NHLGame[] = [];
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    
+    // Parse as local dates to avoid timezone issues
+    const start = parseLocalDate(startDate);
+    const end = parseLocalDate(endDate);
     
     // NHL API returns a full week when you query a single date
     // So we only need to call the API once per week, not per day
@@ -630,7 +643,7 @@ export async function fetchScheduleForDateRange(
     const dayOfWeek = weekStart.getDay();
     const diff = weekStart.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1); // Adjust to Monday
     weekStart.setDate(diff);
-    weekStart.setHours(0, 0, 0, 0);
+    weekStart.setHours(12, 0, 0, 0);
     
     // If the range spans multiple weeks, we need multiple API calls
     const weeksToFetch = new Set<string>();
@@ -641,21 +654,24 @@ export async function fetchScheduleForDateRange(
       const dayOfWeekForDate = weekStartForDate.getDay();
       const diffForDate = weekStartForDate.getDate() - dayOfWeekForDate + (dayOfWeekForDate === 0 ? -6 : 1);
       weekStartForDate.setDate(diffForDate);
-      weekStartForDate.setHours(0, 0, 0, 0);
-      const weekKey = weekStartForDate.toISOString().split('T')[0];
+      weekStartForDate.setHours(12, 0, 0, 0);
+      const weekKey = formatDate(weekStartForDate); // Use local date formatter
       weeksToFetch.add(weekKey);
       
       // Move to next week
       currentDate.setDate(currentDate.getDate() + 7);
     }
     
-    // Fetch once per week
-    const startDateStr = start.toISOString().split('T')[0];
-    const endDateStr = end.toISOString().split('T')[0];
+    // Use the original string inputs directly for filtering (already in correct format)
+    const startDateStr = startDate;
+    const endDateStr = endDate;
+    
+    console.log(`[Schedule] Fetching games from ${startDateStr} to ${endDateStr}, weeks to fetch: ${Array.from(weeksToFetch).join(', ')}`);
     
     for (const weekStartStr of weeksToFetch) {
       try {
         const games = await fetchScheduleForDate(weekStartStr);
+        console.log(`[Schedule] Fetched ${games.length} games for week starting ${weekStartStr}`);
         
         // Filter games to only include those in our date range
         // Use string comparison for dates to avoid timezone issues
@@ -669,6 +685,7 @@ export async function fetchScheduleForDateRange(
           return inRange;
         });
         
+        console.log(`[Schedule] After filtering: ${filteredGames.length} games in range`);
         allGames.push(...filteredGames);
       } catch (error) {
         console.error(`Error fetching schedule for week starting ${weekStartStr}, continuing...`, error);
@@ -686,6 +703,7 @@ export async function fetchScheduleForDateRange(
       return true;
     });
 
+    console.log(`[Schedule] Total unique games: ${uniqueGames.length}`);
     return uniqueGames;
   } catch (error) {
     console.error(`Error fetching schedule for date range ${startDate} to ${endDate}:`, error);
@@ -695,12 +713,18 @@ export async function fetchScheduleForDateRange(
 
 /**
  * Get week start date (Monday) for a given date
+ * Note: Sets time to noon to avoid timezone edge cases when converting to/from strings
  */
 export function getWeekStart(date: Date = new Date()): Date {
   const d = new Date(date);
+  // Set to noon to avoid timezone issues (UTC midnight can be previous day in local time)
+  d.setHours(12, 0, 0, 0);
   const day = d.getDay();
   const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
-  return new Date(d.setDate(diff));
+  const result = new Date(d);
+  result.setDate(diff);
+  result.setHours(12, 0, 0, 0); // Keep at noon for consistency
+  return result;
 }
 
 /**
@@ -715,10 +739,14 @@ export function getWeekEnd(date: Date = new Date()): Date {
 }
 
 /**
- * Format date as YYYY-MM-DD
+ * Format date as YYYY-MM-DD using local date components (not UTC)
+ * This ensures the date string matches what the user sees/expects
  */
 export function formatDate(date: Date): string {
-  return date.toISOString().split('T')[0];
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 /**

@@ -89,8 +89,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Parse week start date if provided
-    const weekStart = weekStartDate ? new Date(weekStartDate) : undefined;
-    console.log(`[Matchup API] Received weekStartDate: ${weekStartDate}, parsed as: ${weekStart?.toISOString()}`);
+    // IMPORTANT: Parse YYYY-MM-DD as local date, not UTC
+    // new Date("2025-01-13") creates UTC midnight, which is the previous day in local time!
+    let weekStart: Date | undefined;
+    if (weekStartDate) {
+      const [year, month, day] = weekStartDate.split('-').map(Number);
+      weekStart = new Date(year, month - 1, day, 12, 0, 0); // Use noon to avoid timezone edge cases
+    }
+    console.log(`[Matchup API] Received weekStartDate: ${weekStartDate}, parsed as local date: ${weekStart?.toISOString()} (day of week: ${weekStart?.getDay()})`);
 
     // Fetch ESPN standings data if leagueId is provided
     let standingsData: any[] = []
