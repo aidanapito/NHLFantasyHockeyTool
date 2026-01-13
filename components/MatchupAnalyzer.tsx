@@ -294,6 +294,21 @@ export default function MatchupAnalyzer() {
       const result = await response.json()
       let analysisData = result.data
 
+      // Debug: Log the raw analysis data
+      console.log('[MatchupAnalyzer] Raw API response:', {
+        weekStart: analysisData?.weekStart,
+        weekEnd: analysisData?.weekEnd,
+        team1TotalGames: analysisData?.team1?.totalGames,
+        team2TotalGames: analysisData?.team2?.totalGames,
+        team1PlayerCount: analysisData?.team1?.playerBreakdown?.length,
+        team1SamplePlayer: analysisData?.team1?.playerBreakdown?.[0] ? {
+          name: analysisData.team1.playerBreakdown[0].playerName,
+          team: analysisData.team1.playerBreakdown[0].nhlTeam,
+          gamesCount: analysisData.team1.playerBreakdown[0].gamesCount,
+          gamesArray: analysisData.team1.playerBreakdown[0].games?.length,
+        } : null,
+      })
+
       // Log projections data for debugging
       if (showProjections) {
         console.log('[Matchup Analyzer] Projections requested, received data:', {
@@ -918,8 +933,8 @@ export default function MatchupAnalyzer() {
             <span>Show Projected Stats (ML Model)</span>
           </label>
           {showProjections && (
-            <p className="mt-1 text-xs text-gray-500">
-              Projections may take longer to generate. Using ML model to predict player performance for the week.
+            <p className="mt-1 text-xs text-amber-600 font-medium">
+              ⚠️ Warning: ML projections take 2-5 minutes to load (cold start). The schedule will appear quickly, but projected stats require loading the ML model.
             </p>
           )}
         </div>

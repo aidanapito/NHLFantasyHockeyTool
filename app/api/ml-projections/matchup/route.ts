@@ -90,6 +90,46 @@ export async function POST(request: NextRequest) {
       })),
     };
 
+    // Try persistent prediction server first (much faster - no cold start)
+    const PREDICTION_SERVER_URL = process.env.PREDICTION_SERVER_URL || 'http://localhost:8001';
+    try {
+      console.log(`[Batch Prediction API] Trying persistent prediction server at ${PREDICTION_SERVER_URL}...`);
+      const serverResponse = await fetch(`${PREDICTION_SERVER_URL}/predict`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(pythonInput),
+        signal: AbortSignal.timeout(30000), // 30 second timeout for server
+      });
+      
+      if (serverResponse.ok) {
+        const result = await serverResponse.json();
+        console.log(`[Batch Prediction API] ✓ Got ${result.predictions?.length || 0} predictions from server`);
+        
+        // Convert snake_case back to camelCase
+        const formattedPredictions = result.predictions.map((p: any) => ({
+          playerId: p.player_id,
+          gameDate: p.game_date,
+          opponentTeam: p.opponent_team,
+          playerTeam: p.player_team,
+          isHome: p.is_home,
+          stats: p.stats,
+        }));
+        
+        return NextResponse.json({
+          predictions: formattedPredictions,
+          errors: result.errors || [],
+          source: 'persistent_server',
+        });
+      } else {
+        console.log(`[Batch Prediction API] Server returned ${serverResponse.status}, falling back to spawn`);
+      }
+    } catch (serverError: any) {
+      console.log(`[Batch Prediction API] Persistent server not available (${serverError.message}), falling back to spawn`);
+    }
+
+    // Fallback: Spawn Python process (slow cold start)
+    console.log(`[Batch Prediction API] Using Python subprocess (cold start - this takes 30+ seconds)...`);
+
     // Find Python executable - use venv if it exists (has required packages)
     // The venv may have timeout issues, but it's the only option with packages installed
     const projectRoot = path.resolve(process.cwd());
