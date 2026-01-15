@@ -41,6 +41,7 @@ interface NormalizedRosterEntry {
 interface NormalizedTeam {
   id: string
   teamName: string
+  platformTeamId?: string
   roster: NormalizedRosterEntry[]
 }
 
@@ -72,6 +73,7 @@ export interface TeamStats {
   shotsOnGoal: number;
   hits: number;
   blockedShots: number;
+  faceoffsWon: number;
   // Goalie stats
   wins: number;
   shutouts: number;
@@ -85,6 +87,7 @@ export interface TeamStats {
 export interface TeamMatchupAnalysis {
   teamId: string;
   teamName: string;
+  platformTeamId?: string;
   totalPlayers: number;
   playersWithGames: number;
   totalGames: number;
@@ -256,6 +259,7 @@ async function analyzeTeamMatchup(
     shotsOnGoal: 0,
     hits: 0,
     blockedShots: 0,
+    faceoffsWon: 0,
     wins: 0,
     shutouts: 0,
     saves: 0,
@@ -292,6 +296,11 @@ async function analyzeTeamMatchup(
     teamStats.shotsOnGoal += stats.shotsOnGoal || 0
     teamStats.hits += stats.hits || 0
     teamStats.blockedShots += stats.blockedShots || 0
+    const playerFow = stats.faceoffsWon || 0
+    teamStats.faceoffsWon += playerFow
+    if (playerFow > 0) {
+      console.log(`[Matchup] Player ${rosterEntry.fullName} has ${playerFow} faceoffsWon`)
+    }
 
     // Goalie stats (only for goalies)
     if (rosterEntry.position === 'G') {
@@ -319,6 +328,7 @@ async function analyzeTeamMatchup(
       shotsOnGoal: teamStats.shotsOnGoal,
       hits: teamStats.hits,
       blockedShots: teamStats.blockedShots,
+      faceoffsWon: teamStats.faceoffsWon,
       wins: teamStats.wins,
       shutouts: teamStats.shutouts,
     }
@@ -334,6 +344,7 @@ async function analyzeTeamMatchup(
   return {
     teamId: team.id,
     teamName: team.teamName,
+    platformTeamId: team.platformTeamId,
     totalPlayers: activeRoster.length,
     playersWithGames,
     totalGames,
@@ -382,6 +393,7 @@ function mergeStandingsStats(currentStats: TeamStats, standings: any): TeamStats
     shotsOnGoal: standings.SOG !== undefined && standings.SOG !== null ? Number(standings.SOG) : (standings.shotsOnGoal !== undefined ? Number(standings.shotsOnGoal) : (standings.shots !== undefined ? Number(standings.shots) : (currentStats.shotsOnGoal ?? 0))),
     hits: standings.HIT !== undefined && standings.HIT !== null ? Number(standings.HIT) : (currentStats.hits ?? 0),
     blockedShots: standings.BLK !== undefined && standings.BLK !== null ? Number(standings.BLK) : (standings.blockedShots !== undefined ? Number(standings.blockedShots) : (standings.blocks !== undefined ? Number(standings.blocks) : (currentStats.blockedShots ?? 0))),
+    faceoffsWon: standings.FOW !== undefined && standings.FOW !== null ? Number(standings.FOW) : (standings.faceoffsWon !== undefined ? Number(standings.faceoffsWon) : (currentStats.faceoffsWon ?? 0)),
     
     // Goalie stats from ESPN standings
     wins: standings.W !== undefined && standings.W !== null ? Number(standings.W) : (currentStats.wins ?? 0),
@@ -453,27 +465,51 @@ export async function analyzeWeeklyMatchup(
   // If standings data is provided, replace stats with season totals from ESPN
   if (standingsData && standingsData.length > 0) {
     console.log(`[Matchup Analyzer] Attempting to match teams with ${standingsData.length} standings entries`)
+    console.log(`[Matchup Analyzer] Team1 ID: ${team1Analysis.teamId}, platformTeamId: ${team1Analysis.platformTeamId}, Name: ${team1Analysis.teamName}`)
+    console.log(`[Matchup Analyzer] Team2 ID: ${team2Analysis.teamId}, platformTeamId: ${team2Analysis.platformTeamId}, Name: ${team2Analysis.teamName}`)
+    console.log(`[Matchup Analyzer] Standings sample:`, standingsData.slice(0, 3).map((s: any) => ({
+      id: s.id, teamId: s.teamId, teamName: s.teamName, FOW: s.FOW
+    })))
     
-    // Match teams by ID or name
+    // Match teams by platformTeamId, ESPN team ID, or name
     const team1Standings = standingsData.find((s: any) => {
-      const team1Id = team1Analysis.teamId?.toString()
+      // Try matching by platformTeamId (ESPN team ID stored in our DB)
+      const platform1Id = team1Analysis.platformTeamId?.toString()
       const standingsId = (s.id || s.teamId || s.team_id)?.toString()
-      if (team1Id && standingsId && team1Id === standingsId) return true
+      if (platform1Id && standingsId && platform1Id === standingsId) {
+        console.log(`[Matchup Analyzer] Team1 matched by platformTeamId: ${platform1Id}`)
+        return true
+      }
       
-      // Fallback to name matching
+      // Try matching by ESPN team name
       const team1Name = team1Analysis.teamName?.toLowerCase().trim().replace(/\([^)]*\)/g, '').replace(/[^a-z0-9]/g, '')
       const standingsName = (s.teamName || '').toLowerCase().trim().replace(/\([^)]*\)/g, '').replace(/[^a-z0-9]/g, '')
-      return team1Name && standingsName && (team1Name === standingsName || team1Name.includes(standingsName) || standingsName.includes(team1Name))
+      if (team1Name && standingsName && (team1Name === standingsName || team1Name.includes(standingsName) || standingsName.includes(team1Name))) {
+        console.log(`[Matchup Analyzer] Team1 matched by name: ${team1Analysis.teamName} -> ${s.teamName}`)
+        return true
+      }
+      
+      return false
     })
 
     const team2Standings = standingsData.find((s: any) => {
-      const team2Id = team2Analysis.teamId?.toString()
+      // Try matching by platformTeamId (ESPN team ID stored in our DB)
+      const platform2Id = team2Analysis.platformTeamId?.toString()
       const standingsId = (s.id || s.teamId || s.team_id)?.toString()
-      if (team2Id && standingsId && team2Id === standingsId) return true
+      if (platform2Id && standingsId && platform2Id === standingsId) {
+        console.log(`[Matchup Analyzer] Team2 matched by platformTeamId: ${platform2Id}`)
+        return true
+      }
       
+      // Try matching by ESPN team name
       const team2Name = team2Analysis.teamName?.toLowerCase().trim().replace(/\([^)]*\)/g, '').replace(/[^a-z0-9]/g, '')
       const standingsName = (s.teamName || '').toLowerCase().trim().replace(/\([^)]*\)/g, '').replace(/[^a-z0-9]/g, '')
-      return team2Name && standingsName && (team2Name === standingsName || team2Name.includes(standingsName) || standingsName.includes(team2Name))
+      if (team2Name && standingsName && (team2Name === standingsName || team2Name.includes(standingsName) || standingsName.includes(team2Name))) {
+        console.log(`[Matchup Analyzer] Team2 matched by name: ${team2Analysis.teamName} -> ${s.teamName}`)
+        return true
+      }
+      
+      return false
     })
 
     // Replace stats with standings (season totals)
@@ -627,6 +663,7 @@ function aggregateProjectedPlayerStats(
     shotsOnGoal: 0,
     hits: 0,
     blockedShots: 0,
+    faceoffsWon: 0,
     wins: 0,
     shutouts: 0,
     saves: 0,
@@ -818,6 +855,7 @@ async function fetchDatabaseTeam(teamRef: TeamReference): Promise<NormalizedTeam
         goals: stats.goals,
         assists: stats.assists,
         points: stats.points,
+        faceoffsWon: stats.faceoffsWon,
         season: stats.season,
       })
     }
@@ -834,6 +872,7 @@ async function fetchDatabaseTeam(teamRef: TeamReference): Promise<NormalizedTeam
   return {
     id: team.id,
     teamName: team.teamName,
+    platformTeamId: team.platformTeamId || undefined,
     roster,
   }
 }
@@ -945,19 +984,23 @@ function normalizeEspnStats(espnStat: any): any {
 
   // Extract stats from ESPN format
   let foundStats = 0
+  console.log(`[ESPN Stats] All stat IDs in statsObj:`, Object.keys(statsObj).join(', '))
   for (const [key, value] of Object.entries(statsObj)) {
     const statId = parseInt(key)
     const statName = statMap[statId]
     if (statName && typeof value === 'number') {
       normalized[statName] = value
       foundStats++
+      if (statName === 'faceoffsWon') {
+        console.log(`[ESPN Stats] Found faceoffsWon at stat ID ${statId}: ${value}`)
+      }
     } else if (typeof value === 'number' && value !== 0) {
       // Log unmapped stat IDs for debugging
       console.log(`[ESPN Stats] Unmapped stat ID ${statId} with value ${value}`)
     }
   }
 
-  console.log(`[ESPN Stats] Mapped ${foundStats} stats from ESPN format`)
+  console.log(`[ESPN Stats] Mapped ${foundStats} stats, faceoffsWon=${normalized.faceoffsWon}`)
 
   // Calculate save percentage if we have saves and goals against
   if (normalized.saves > 0 || normalized.goalsAgainst > 0) {
@@ -1413,6 +1456,7 @@ export async function analyzeWeeklyMatchupWithProjections(
     shotsOnGoal: 0,
     hits: 0,
     blockedShots: 0,
+    faceoffsWon: 0,
     wins: 0,
     shutouts: 0,
     saves: 0,

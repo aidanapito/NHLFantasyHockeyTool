@@ -107,14 +107,25 @@ export async function POST(request: NextRequest) {
       }
       try {
         const url = `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/fantasy/espn-standings?${params.toString()}`
+        console.log(`[Matchup API] Fetching standings from: ${url}`)
         const response = await fetch(url, { cache: 'no-store' })
         if (response.ok) {
           const data = await response.json()
           standingsData = data.standings || data.results || []
+          console.log(`[Matchup API] Fetched ${standingsData.length} standings entries`)
+          if (standingsData.length > 0) {
+            console.log(`[Matchup API] Sample standings:`, standingsData.slice(0, 2).map((s: any) => ({
+              id: s.id, teamId: s.teamId, teamName: s.teamName, FOW: s.FOW, G: s.G
+            })))
+          }
+        } else {
+          console.error(`[Matchup API] Standings fetch failed: ${response.status}`)
         }
       } catch (err) {
         console.error('[Matchup API] Error fetching standings:', err)
       }
+    } else {
+      console.log('[Matchup API] No leagueId provided, skipping standings fetch')
     }
 
     // Analyze the matchup (with or without projections)

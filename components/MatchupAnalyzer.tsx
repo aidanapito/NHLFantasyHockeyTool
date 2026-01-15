@@ -47,6 +47,7 @@ interface TeamStats {
   shotsOnGoal: number
   hits: number
   blockedShots: number
+  faceoffsWon: number
   wins: number
   shutouts: number
   saves: number
@@ -637,6 +638,7 @@ export default function MatchupAnalyzer() {
             shotsOnGoal: team1Standings.SOG ?? analysisData.team1.stats.shotsOnGoal ?? 0,
             hits: team1Standings.HIT ?? analysisData.team1.stats.hits ?? 0,
             blockedShots: team1Standings.BLK ?? analysisData.team1.stats.blockedShots ?? 0,
+            faceoffsWon: team1Standings.FOW ?? analysisData.team1.stats.faceoffsWon ?? 0,
             wins: team1Standings.W ?? analysisData.team1.stats.wins ?? 0,
             shutouts: team1Standings.SO ?? analysisData.team1.stats.shutouts ?? 0,
             gaa: team1Standings.GAA ?? analysisData.team1.stats.gaa ?? 0,
@@ -659,6 +661,7 @@ export default function MatchupAnalyzer() {
             shotsOnGoal: team2Standings.SOG ?? analysisData.team2.stats.shotsOnGoal ?? 0,
             hits: team2Standings.HIT ?? analysisData.team2.stats.hits ?? 0,
             blockedShots: team2Standings.BLK ?? analysisData.team2.stats.blockedShots ?? 0,
+            faceoffsWon: team2Standings.FOW ?? analysisData.team2.stats.faceoffsWon ?? 0,
             wins: team2Standings.W ?? analysisData.team2.stats.wins ?? 0,
             shutouts: team2Standings.SO ?? analysisData.team2.stats.shutouts ?? 0,
             gaa: team2Standings.GAA ?? analysisData.team2.stats.gaa ?? 0,
@@ -976,6 +979,7 @@ export default function MatchupAnalyzer() {
                     { key: 'shotsOnGoal', label: 'Shots' },
                     { key: 'hits', label: 'Hits' },
                     { key: 'blockedShots', label: 'Blocks' },
+                    { key: 'faceoffsWon', label: 'FOW' },
                   ].map(({ key, label }) => {
                     const team1Value = analysis.team1.stats[key as keyof TeamStats] || 0
                     const team2Value = analysis.team2.stats[key as keyof TeamStats] || 0
@@ -1104,6 +1108,7 @@ export default function MatchupAnalyzer() {
                       wins += (analysis.team1.stats.shotsOnGoal > analysis.team2.stats.shotsOnGoal) ? 1 : 0
                       wins += (analysis.team1.stats.hits > analysis.team2.stats.hits) ? 1 : 0
                       wins += (analysis.team1.stats.blockedShots > analysis.team2.stats.blockedShots) ? 1 : 0
+                      wins += (analysis.team1.stats.faceoffsWon > analysis.team2.stats.faceoffsWon) ? 1 : 0
                       wins += (analysis.team1.stats.wins > analysis.team2.stats.wins) ? 1 : 0
                       wins += (analysis.team1.stats.shutouts > analysis.team2.stats.shutouts) ? 1 : 0
                       wins += (analysis.team1.stats.savePct > analysis.team2.stats.savePct) ? 1 : 0
@@ -1127,6 +1132,7 @@ export default function MatchupAnalyzer() {
                       wins += (analysis.team2.stats.shotsOnGoal > analysis.team1.stats.shotsOnGoal) ? 1 : 0
                       wins += (analysis.team2.stats.hits > analysis.team1.stats.hits) ? 1 : 0
                       wins += (analysis.team2.stats.blockedShots > analysis.team1.stats.blockedShots) ? 1 : 0
+                      wins += (analysis.team2.stats.faceoffsWon > analysis.team1.stats.faceoffsWon) ? 1 : 0
                       wins += (analysis.team2.stats.wins > analysis.team1.stats.wins) ? 1 : 0
                       wins += (analysis.team2.stats.shutouts > analysis.team1.stats.shutouts) ? 1 : 0
                       wins += (analysis.team2.stats.savePct > analysis.team1.stats.savePct) ? 1 : 0
@@ -1448,6 +1454,7 @@ export default function MatchupAnalyzer() {
                       { key: 'shotsOnGoal', label: 'Shots' },
                       { key: 'hits', label: 'Hits' },
                       { key: 'blockedShots', label: 'Blocks' },
+                      { key: 'faceoffsWon', label: 'FOW' },
                     ].map(({ key, label }) => {
                       const current1 = analysis.team1.stats[key as keyof TeamStats] || 0
                       const current2 = analysis.team2.stats[key as keyof TeamStats] || 0
