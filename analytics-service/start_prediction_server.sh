@@ -15,3 +15,4 @@ echo "Once started, predictions will be instant (no cold start)."
 echo ""
 python -m uvicorn prediction_server:app --host 0.0.0.0 --port 8001 --reload
 
+
