@@ -222,12 +222,74 @@ export default function TeamInfo() {
     }
   }
 
-  const sortedStandings = useMemo(() => {
-    if (!sortField || standings.length === 0) return standings
+  // Calculate rankings for each category and compute TotalScore
+  const standingsWithTotalScore = useMemo(() => {
+    if (standings.length === 0) return []
 
-    return [...standings].sort((a, b) => {
-      const aValue = a[sortField]
-      const bValue = b[sortField]
+    // Categories where higher is better
+    const higherIsBetter: (keyof StandingsEntry)[] = ['G', 'A', 'plusMinus', 'PIM', 'PPP', 'FOW', 'SOG', 'HIT', 'BLK', 'W', 'SO', 'SV']
+    // Categories where lower is better
+    const lowerIsBetter: (keyof StandingsEntry)[] = ['GAA']
+    
+    const allCategories = [...higherIsBetter, ...lowerIsBetter]
+    
+    // Calculate rank for each team in each category
+    const rankings: Record<number, Record<string, number>> = {}
+    
+    standings.forEach((_, idx) => {
+      rankings[idx] = {}
+    })
+    
+    allCategories.forEach(category => {
+      // Get values with indices, filtering out null/undefined
+      const values = standings.map((team, idx) => ({
+        idx,
+        value: team[category] as number | undefined
+      })).filter(item => item.value != null)
+      
+      // Sort based on whether higher or lower is better
+      const isHigherBetter = higherIsBetter.includes(category)
+      values.sort((a, b) => {
+        if (isHigherBetter) {
+          return (b.value ?? 0) - (a.value ?? 0) // Higher first
+        } else {
+          return (a.value ?? 0) - (b.value ?? 0) // Lower first
+        }
+      })
+      
+      // Assign ranks (handle ties by giving same rank)
+      let currentRank = 1
+      values.forEach((item, sortIdx) => {
+        if (sortIdx > 0 && item.value === values[sortIdx - 1].value) {
+          // Same value as previous, give same rank
+          rankings[item.idx][category] = rankings[values[sortIdx - 1].idx][category]
+        } else {
+          rankings[item.idx][category] = currentRank
+        }
+        currentRank++
+      })
+      
+      // Teams with null values get last place rank
+      standings.forEach((team, idx) => {
+        if (team[category] == null) {
+          rankings[idx][category] = standings.length
+        }
+      })
+    })
+    
+    // Calculate total score for each team
+    return standings.map((team, idx) => ({
+      ...team,
+      totalScore: allCategories.reduce((sum, cat) => sum + (rankings[idx][cat] || standings.length), 0)
+    }))
+  }, [standings])
+
+  const sortedStandings = useMemo(() => {
+    if (!sortField || standingsWithTotalScore.length === 0) return standingsWithTotalScore
+
+    return [...standingsWithTotalScore].sort((a, b) => {
+      const aValue = a[sortField as keyof typeof a]
+      const bValue = b[sortField as keyof typeof b]
 
       // Handle null/undefined values
       if (aValue == null && bValue == null) return 0
@@ -248,7 +310,7 @@ export default function TeamInfo() {
 
       return 0
     })
-  }, [standings, sortField, sortDirection])
+  }, [standingsWithTotalScore, sortField, sortDirection])
 
   const lastSyncedDisplay = useMemo(() => {
     const timestamp = leagueSettings?.lastSyncedAt ?? lastLoadedAt
@@ -405,6 +467,12 @@ export default function TeamInfo() {
                   >
                     SV% {sortField === 'SV' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
+                  <th 
+                    className="px-3 py-2 text-right text-xs font-medium text-gray-700 uppercase cursor-pointer hover:bg-gray-100 select-none bg-blue-50"
+                    onClick={() => handleSort('totalScore' as keyof StandingsEntry)}
+                  >
+                    SCORE {sortField === 'totalScore' && (sortDirection === 'asc' ? '↑' : '↓')}
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -430,6 +498,9 @@ export default function TeamInfo() {
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-sm text-right text-gray-900">
                       {typeof team.SV === 'number' ? (team.SV * 100).toFixed(2) + '%' : '-'}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-right font-semibold text-blue-700 bg-blue-50">
+                      {team.totalScore ?? '-'}
                     </td>
                   </tr>
                 ))}
