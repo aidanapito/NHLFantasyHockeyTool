@@ -3,6 +3,91 @@ import RefreshStatsButton from '@/components/RefreshStatsButton'
 import RosterRemoveButton from '@/components/RosterRemoveButton'
 import { prisma } from '@/lib/prisma'
 
+// Z-score calculation for skaters
+function calculateSkaterZScore(
+  stats: { goals: number; assists: number; plusMinus: number; pim: number; shotsOnGoal: number; hits: number; blockedShots: number; powerPlayPoints: number; faceoffsWon: number },
+  allStats: Array<{ goals: number; assists: number; plusMinus: number; pim: number; shotsOnGoal: number; hits: number; blockedShots: number; powerPlayPoints: number; faceoffsWon: number }>
+): number {
+  if (allStats.length === 0) return 0
+  const mean = (arr: number[]) => arr.length === 0 ? 0 : arr.reduce((a, b) => a + b, 0) / arr.length
+  const stdDev = (arr: number[]) => {
+    if (arr.length === 0) return 0
+    const m = mean(arr)
+    return Math.sqrt(arr.reduce((a, b) => a + (b - m) ** 2, 0) / arr.length)
+  }
+  const zScore = (val: number, arr: number[]) => {
+    const s = stdDev(arr)
+    return s === 0 ? 0 : (val - mean(arr)) / s
+  }
+  const weights = { goals: 3, assists: 2, plusMinus: 0.5, pim: 0.5, shotsOnGoal: 0.5, hits: 0.5, blockedShots: 0.5, powerPlayPoints: 1, faceoffsWon: 0.25 }
+  return (
+    zScore(stats.goals, allStats.map(s => s.goals)) * weights.goals +
+    zScore(stats.assists, allStats.map(s => s.assists)) * weights.assists +
+    zScore(stats.plusMinus, allStats.map(s => s.plusMinus)) * weights.plusMinus +
+    zScore(stats.pim, allStats.map(s => s.pim)) * weights.pim +
+    zScore(stats.shotsOnGoal, allStats.map(s => s.shotsOnGoal)) * weights.shotsOnGoal +
+    zScore(stats.hits, allStats.map(s => s.hits)) * weights.hits +
+    zScore(stats.blockedShots, allStats.map(s => s.blockedShots)) * weights.blockedShots +
+    zScore(stats.powerPlayPoints, allStats.map(s => s.powerPlayPoints)) * weights.powerPlayPoints +
+    zScore(stats.faceoffsWon, allStats.map(s => s.faceoffsWon)) * weights.faceoffsWon
+  )
+}
+
+// Z-score calculation for goalies
+function calculateGoalieZScore(
+  stats: { wins: number; shutouts: number; savePct: number; gaa: number },
+  allStats: Array<{ wins: number; shutouts: number; savePct: number; gaa: number }>
+): number {
+  if (allStats.length === 0) return 0
+  const mean = (arr: number[]) => arr.length === 0 ? 0 : arr.reduce((a, b) => a + b, 0) / arr.length
+  const stdDev = (arr: number[]) => {
+    if (arr.length === 0) return 0
+    const m = mean(arr)
+    return Math.sqrt(arr.reduce((a, b) => a + (b - m) ** 2, 0) / arr.length)
+  }
+  const zScore = (val: number, arr: number[]) => {
+    const s = stdDev(arr)
+    return s === 0 ? 0 : (val - mean(arr)) / s
+  }
+  const weights = { wins: 3, shutouts: 2, savePct: 2, gaa: -2 }
+  return (
+    zScore(stats.wins, allStats.map(s => s.wins)) * weights.wins +
+    zScore(stats.shutouts, allStats.map(s => s.shutouts)) * weights.shutouts +
+    zScore(stats.savePct, allStats.map(s => s.savePct)) * weights.savePct +
+    zScore(stats.gaa, allStats.map(s => s.gaa)) * weights.gaa
+  )
+}
+
+// TPV calculation (simplified version)
+function calculateTPV(
+  stats: { goals: number; assists: number; plusMinus: number; pim: number; shotsOnGoal: number; hits: number; blockedShots: number; powerPlayPoints: number },
+  allStats: Array<{ goals: number; assists: number; plusMinus: number; pim: number; shotsOnGoal: number; hits: number; blockedShots: number; powerPlayPoints: number }>
+): number {
+  if (allStats.length === 0) return 0
+  const mean = (arr: number[]) => arr.length === 0 ? 0 : arr.reduce((a, b) => a + b, 0) / arr.length
+  const stdDev = (arr: number[]) => {
+    if (arr.length === 0) return 0
+    const m = mean(arr)
+    return Math.sqrt(arr.reduce((a, b) => a + (b - m) ** 2, 0) / arr.length)
+  }
+  const zScore = (val: number, arr: number[]) => {
+    const s = stdDev(arr)
+    return s === 0 ? 0 : (val - mean(arr)) / s
+  }
+  // Fantasy-weighted TPV
+  const weights = { goals: 4, assists: 2.5, plusMinus: 0.5, pim: 0.3, shotsOnGoal: 0.3, hits: 0.3, blockedShots: 0.3, powerPlayPoints: 1.5 }
+  return (
+    zScore(stats.goals, allStats.map(s => s.goals)) * weights.goals +
+    zScore(stats.assists, allStats.map(s => s.assists)) * weights.assists +
+    zScore(stats.plusMinus, allStats.map(s => s.plusMinus)) * weights.plusMinus +
+    zScore(stats.pim, allStats.map(s => s.pim)) * weights.pim +
+    zScore(stats.shotsOnGoal, allStats.map(s => s.shotsOnGoal)) * weights.shotsOnGoal +
+    zScore(stats.hits, allStats.map(s => s.hits)) * weights.hits +
+    zScore(stats.blockedShots, allStats.map(s => s.blockedShots)) * weights.blockedShots +
+    zScore(stats.powerPlayPoints, allStats.map(s => s.powerPlayPoints)) * weights.powerPlayPoints
+  )
+}
+
 function getBaseUrl(): string {
   const envUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.VERCEL_URL
   if (envUrl) {
@@ -42,6 +127,46 @@ function convertEspnSeasonToDbSeason(espnSeason: string | undefined): string {
   return getCurrentSeason()
 }
 
+async function fetchAllPlayerStats(season: string) {
+  // Fetch all player stats for z-score comparison
+  const allStats = await prisma.playerStats.findMany({
+    where: {
+      season,
+      gameType: 'regular',
+    },
+    include: {
+      player: {
+        select: { position: true }
+      }
+    }
+  })
+  
+  const skaterStats = allStats
+    .filter(s => s.player?.position !== 'G')
+    .map(s => ({
+      goals: s.goals || 0,
+      assists: s.assists || 0,
+      plusMinus: s.plusMinus || 0,
+      pim: s.pim || 0,
+      shotsOnGoal: s.shotsOnGoal || 0,
+      hits: s.hits || 0,
+      blockedShots: s.blockedShots || 0,
+      powerPlayPoints: s.powerPlayPoints || 0,
+      faceoffsWon: s.faceoffsWon || 0,
+    }))
+  
+  const goalieStats = allStats
+    .filter(s => s.player?.position === 'G')
+    .map(s => ({
+      wins: s.wins || 0,
+      shutouts: s.shutouts || 0,
+      savePct: s.savePct || 0,
+      gaa: s.gaa || 0,
+    }))
+  
+  return { skaterStats, goalieStats }
+}
+
 async function fetchEspnTeam(teamId: string, leagueId: string, season?: string) {
   const base = getBaseUrl()
   const params = new URLSearchParams({ leagueId })
@@ -72,6 +197,9 @@ async function fetchEspnTeam(teamId: string, leagueId: string, season?: string) 
   // Convert ESPN season format to database format
   const espnSeason = season || data.season
   const statsSeason = convertEspnSeasonToDbSeason(espnSeason)
+
+  // Fetch all player stats for z-score comparison
+  const { skaterStats: allSkaterStats, goalieStats: allGoalieStats } = await fetchAllPlayerStats(statsSeason)
 
   // Build roster with player info
   const rosterWithPlayerInfo = rawRoster.map((player: any) => ({
@@ -149,6 +277,9 @@ async function fetchEspnTeam(teamId: string, leagueId: string, season?: string) 
     const stats = dbPlayer?.stats?.[0] || null
     const isGoalie = r.position === 'G'
 
+    let zScore = 0
+    let tpv = 0
+
     if (stats) {
       if (isGoalie) {
         goalieTotals.wins += stats.wins || 0
@@ -164,6 +295,12 @@ async function fetchEspnTeam(teamId: string, leagueId: string, season?: string) 
           goalieTotals.gaaNumerator += stats.goalsAgainst
           goalieTotals.gaaDenominator += stats.gamesPlayed
         }
+        // Calculate goalie z-score
+        zScore = calculateGoalieZScore(
+          { wins: stats.wins || 0, shutouts: stats.shutouts || 0, savePct: stats.savePct || 0, gaa: stats.gaa || 0 },
+          allGoalieStats
+        )
+        tpv = zScore // For goalies, TPV = zScore
       } else {
         skaterTotals.gamesPlayed += stats.gamesPlayed || 0
         skaterTotals.goals += stats.goals || 0
@@ -176,12 +313,28 @@ async function fetchEspnTeam(teamId: string, leagueId: string, season?: string) 
         skaterTotals.hits += stats.hits || 0
         skaterTotals.blockedShots += stats.blockedShots || 0
         skaterTotals.faceoffsWon += stats.faceoffsWon || 0
+        // Calculate skater z-score and TPV
+        const playerStats = {
+          goals: stats.goals || 0,
+          assists: stats.assists || 0,
+          plusMinus: stats.plusMinus || 0,
+          pim: stats.pim || 0,
+          shotsOnGoal: stats.shotsOnGoal || 0,
+          hits: stats.hits || 0,
+          blockedShots: stats.blockedShots || 0,
+          powerPlayPoints: stats.powerPlayPoints || 0,
+          faceoffsWon: stats.faceoffsWon || 0,
+        }
+        zScore = calculateSkaterZScore(playerStats, allSkaterStats)
+        tpv = calculateTPV(playerStats, allSkaterStats)
       }
     }
 
     return {
       ...r,
       stats,
+      zScore,
+      tpv,
     }
   })
 
@@ -270,6 +423,41 @@ export default async function TeamPage({ params, searchParams }: { params: { tea
   }
 
   const team = data.team
+  
+  // Calculate z-scores and TPV if not already present
+  const needsZScoreCalculation = team.roster.some((r: any) => r.stats && typeof r.zScore !== 'number')
+  if (needsZScoreCalculation) {
+    // Get database season format
+    const dbSeason = convertEspnSeasonToDbSeason(season || team.league?.season)
+    const { skaterStats: allSkaterStats, goalieStats: allGoalieStats } = await fetchAllPlayerStats(dbSeason)
+    
+    for (const player of team.roster) {
+      if (!player.stats) continue
+      const isGoalie = player.position === 'G'
+      
+      if (isGoalie) {
+        player.zScore = calculateGoalieZScore(
+          { wins: player.stats.wins || 0, shutouts: player.stats.shutouts || 0, savePct: player.stats.savePct || 0, gaa: player.stats.gaa || 0 },
+          allGoalieStats
+        )
+        player.tpv = player.zScore
+      } else {
+        const playerStats = {
+          goals: player.stats.goals || 0,
+          assists: player.stats.assists || 0,
+          plusMinus: player.stats.plusMinus || 0,
+          pim: player.stats.pim || 0,
+          shotsOnGoal: player.stats.shotsOnGoal || 0,
+          hits: player.stats.hits || 0,
+          blockedShots: player.stats.blockedShots || 0,
+          powerPlayPoints: player.stats.powerPlayPoints || 0,
+          faceoffsWon: player.stats.faceoffsWon || 0,
+        }
+        player.zScore = calculateSkaterZScore(playerStats, allSkaterStats)
+        player.tpv = calculateTPV(playerStats, allSkaterStats)
+      }
+    }
+  }
 
   return (
     <div className="max-w-7xl mx-auto py-8 text-black">
@@ -312,6 +500,8 @@ export default async function TeamPage({ params, searchParams }: { params: { tea
                   <th className="px-3 py-2 text-left text-xs font-medium text-black uppercase">Player</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-black uppercase">Pos</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-black uppercase">NHL Team</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-blue-700 uppercase bg-blue-50">Z</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-green-700 uppercase bg-green-50">TPV</th>
                   <th className="px-3 py-2 text-right text-xs font-medium text-black uppercase">GP</th>
                   <th className="px-3 py-2 text-right text-xs font-medium text-black uppercase">G</th>
                   <th className="px-3 py-2 text-right text-xs font-medium text-black uppercase">A</th>
@@ -334,6 +524,12 @@ export default async function TeamPage({ params, searchParams }: { params: { tea
                     <td className="px-3 py-2 whitespace-nowrap text-sm font-medium text-black">{r.name}</td>
                     <td className="px-3 py-2 whitespace-nowrap text-sm text-black">{r.position}</td>
                     <td className="px-3 py-2 whitespace-nowrap text-sm text-black">{r.team || 'FA'}</td>
+                    <td className={`px-3 py-2 whitespace-nowrap text-sm text-right font-semibold bg-blue-50 ${(r.zScore ?? 0) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                      {typeof r.zScore === 'number' ? r.zScore.toFixed(1) : '-'}
+                    </td>
+                    <td className={`px-3 py-2 whitespace-nowrap text-sm text-right font-semibold bg-green-50 ${(r.tpv ?? 0) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                      {typeof r.tpv === 'number' ? r.tpv.toFixed(1) : '-'}
+                    </td>
                     <td className="px-3 py-2 whitespace-nowrap text-sm text-right">{r.stats?.gamesPlayed ?? '-'}</td>
                     <td className="px-3 py-2 whitespace-nowrap text-sm text-right">{r.stats?.goals ?? '-'}</td>
                     <td className="px-3 py-2 whitespace-nowrap text-sm text-right">{r.stats?.assists ?? '-'}</td>
