@@ -624,6 +624,32 @@ export default function MatchupAnalyzer() {
 
         console.log('[Matchup Analyzer] Team1 standings found:', !!team1Standings, team1Standings)
         console.log('[Matchup Analyzer] Team2 standings found:', !!team2Standings, team2Standings)
+        
+        // Debug: Check if goalie stats are present
+        if (team1Standings) {
+          console.log('[Matchup Analyzer] Team1 goalie stats:', { W: team1Standings.W, SO: team1Standings.SO, GAA: team1Standings.GAA, SV: team1Standings.SV })
+        }
+        if (team2Standings) {
+          console.log('[Matchup Analyzer] Team2 goalie stats:', { W: team2Standings.W, SO: team2Standings.SO, GAA: team2Standings.GAA, SV: team2Standings.SV })
+        }
+
+        // Helper function to get goalie stat with fallback
+        // If standings value is undefined/null OR if it's 0 while the API value is > 0, use API value
+        const getGoalieStat = (standingsVal: number | undefined | null, apiVal: number | undefined | null, key: string): number => {
+          const sVal = standingsVal ?? null
+          const aVal = apiVal ?? 0
+          // If standings has a positive value, use it
+          if (sVal !== null && sVal !== undefined && sVal > 0) {
+            return sVal
+          }
+          // If standings is 0 but API has a value, prefer API (standings might have failed to parse goalies)
+          if ((sVal === null || sVal === undefined || sVal === 0) && aVal > 0) {
+            console.log(`[Matchup Analyzer] Using API fallback for ${key}: ${aVal}`)
+            return aVal
+          }
+          // Default to standings value if it exists, otherwise 0
+          return sVal ?? aVal
+        }
 
         // Merge standings stats into team stats
         if (team1Standings) {
@@ -639,9 +665,9 @@ export default function MatchupAnalyzer() {
             hits: team1Standings.HIT ?? analysisData.team1.stats.hits ?? 0,
             blockedShots: team1Standings.BLK ?? analysisData.team1.stats.blockedShots ?? 0,
             faceoffsWon: team1Standings.FOW ?? analysisData.team1.stats.faceoffsWon ?? 0,
-            wins: team1Standings.W ?? analysisData.team1.stats.wins ?? 0,
-            shutouts: team1Standings.SO ?? analysisData.team1.stats.shutouts ?? 0,
-            gaa: team1Standings.GAA ?? analysisData.team1.stats.gaa ?? 0,
+            wins: getGoalieStat(team1Standings.W, analysisData.team1.stats.wins, 'team1.wins'),
+            shutouts: getGoalieStat(team1Standings.SO, analysisData.team1.stats.shutouts, 'team1.shutouts'),
+            gaa: getGoalieStat(team1Standings.GAA, analysisData.team1.stats.gaa, 'team1.gaa'),
             savePct: team1Standings.SV ? (team1Standings.SV * 100) : (analysisData.team1.stats.savePct ?? 0),
           }
           console.log('[Matchup Analyzer] Team1 stats after merge:', analysisData.team1.stats)
@@ -662,9 +688,9 @@ export default function MatchupAnalyzer() {
             hits: team2Standings.HIT ?? analysisData.team2.stats.hits ?? 0,
             blockedShots: team2Standings.BLK ?? analysisData.team2.stats.blockedShots ?? 0,
             faceoffsWon: team2Standings.FOW ?? analysisData.team2.stats.faceoffsWon ?? 0,
-            wins: team2Standings.W ?? analysisData.team2.stats.wins ?? 0,
-            shutouts: team2Standings.SO ?? analysisData.team2.stats.shutouts ?? 0,
-            gaa: team2Standings.GAA ?? analysisData.team2.stats.gaa ?? 0,
+            wins: getGoalieStat(team2Standings.W, analysisData.team2.stats.wins, 'team2.wins'),
+            shutouts: getGoalieStat(team2Standings.SO, analysisData.team2.stats.shutouts, 'team2.shutouts'),
+            gaa: getGoalieStat(team2Standings.GAA, analysisData.team2.stats.gaa, 'team2.gaa'),
             savePct: team2Standings.SV ? (team2Standings.SV * 100) : (analysisData.team2.stats.savePct ?? 0),
           }
           console.log('[Matchup Analyzer] Team2 stats after merge:', analysisData.team2.stats)

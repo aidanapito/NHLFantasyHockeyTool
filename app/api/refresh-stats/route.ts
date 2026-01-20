@@ -5,7 +5,6 @@ import { ensurePlayerExists } from '@/lib/player-matcher';
 import axios from 'axios';
 
 const NHL_STATS_API_BASE = 'https://api.nhle.com/stats/rest/en';
-const NHL_API_BASE = 'https://api-web.nhle.com/v1';
 
 interface SummaryStats {
   playerId: number;
@@ -254,45 +253,6 @@ async function fetchGoalieStats(season: string): Promise<GoalieStats[]> {
   }
 }
 
-async function fetchPlayerDetails(playerId: number) {
-  try {
-    const response = await axios.get(`${NHL_API_BASE}/player/${playerId}/landing`);
-    return response.data;
-  } catch (error) {
-    console.error(`Error fetching details for player ${playerId}:`, error);
-    return null;
-  }
-}
-
-function convertHeightToFeetInches(heightInInches: number): string {
-  const feet = Math.floor(heightInInches / 12);
-  const inches = heightInInches % 12;
-  return `${feet}'${inches}"`;
-}
-
-function getNationalityFromCountry(country: string): string {
-  const nationalityMap: { [key: string]: string } = {
-    'CAN': 'Canadian',
-    'USA': 'American',
-    'SWE': 'Swedish',
-    'FIN': 'Finnish',
-    'RUS': 'Russian',
-    'CZE': 'Czech',
-    'SVK': 'Slovak',
-    'CHE': 'Swiss',
-    'DEU': 'German',
-    'DNK': 'Danish',
-    'NOR': 'Norwegian',
-    'LVA': 'Latvian',
-    'SVN': 'Slovenian',
-    'AUT': 'Austrian',
-    'FRA': 'French',
-    'BLR': 'Belarusian',
-    'GBR': 'British',
-  };
-  return nationalityMap[country] || country;
-}
-
 /**
  * Get current season identifier
  * Format: YYYY(YY+1) e.g., 20252026 for 2025-26 season
@@ -368,40 +328,22 @@ async function processSeason(season: string) {
 
   for (const skater of summaryStats) {
     try {
-      // Try to fetch detailed player info, but don't fail if it doesn't work
-      let playerDetails = null;
-      try {
-        playerDetails = await fetchPlayerDetails(skater.playerId);
-      } catch (error) {
-        console.log(`Could not fetch details for player ${skater.playerId}, using basic info`);
-      }
-
-      const player = playerDetails?.player || {};
-      
-      // Parse name from stats or player details
+      // Use basic info from stats API - skip individual player detail fetches
+      // (height, weight, birthday etc. don't change and slow down refresh significantly)
       const nameParts = (skater.skaterFullName || "").split(' ');
-      const firstName = player.firstName?.default || nameParts[0] || "";
-      const lastName = player.lastName?.default || nameParts.slice(1).join(' ') || skater.skaterFullName || "";
-      const fullName = (player.firstName?.default && player.lastName?.default)
-        ? `${player.firstName.default} ${player.lastName.default}`
-        : (skater.skaterFullName || `${firstName} ${lastName}`).trim() || "Unknown Player";
+      const firstName = nameParts[0] || "Unknown";
+      const lastName = nameParts.slice(1).join(' ') || "Player";
+      const fullName = skater.skaterFullName || `${firstName} ${lastName}`.trim() || "Unknown Player";
 
       // Use player matcher to ensure player exists (matches by NHL ID or name)
       const playerResult = await ensurePlayerExists({
         nhlId: skater.playerId,
-        fullName: fullName || skater.skaterFullName || "Unknown Player",
-        firstName: firstName || "Unknown",
-        lastName: lastName || "Player",
+        fullName: fullName,
+        firstName: firstName,
+        lastName: lastName,
         position: skater.positionCode || "C",
         team: skater.teamAbbrevs?.split(',')[0] || null,
-        jerseyNumber: player.sweaterNumber || null,
-        height: player.heightInInches ? convertHeightToFeetInches(player.heightInInches) : null,
-        weight: player.weightInPounds || null,
-        birthDate: player.birthDate ? new Date(player.birthDate) : null,
-        birthCity: player.birthCity?.default || null,
-        birthCountry: player.birthCountry || null,
-        nationality: player.birthCountry ? getNationalityFromCountry(player.birthCountry) : null,
-        headshot: player.headshot || `https://assets.nhle.com/mugs/nhl/latest/${skater.playerId}.png`,
+        headshot: `https://assets.nhle.com/mugs/nhl/latest/${skater.playerId}.png`,
         isActive: true,
       });
 
@@ -517,40 +459,21 @@ async function processSeason(season: string) {
   // Process goalies
   for (const goalie of goalieStats) {
     try {
-      // Try to fetch detailed player info, but don't fail if it doesn't work
-      let playerDetails = null;
-      try {
-        playerDetails = await fetchPlayerDetails(goalie.playerId);
-      } catch (error) {
-        console.log(`Could not fetch details for goalie ${goalie.playerId}, using basic info`);
-      }
-
-      const player = playerDetails?.player || {};
-      
-      // Parse name from stats or player details
+      // Use basic info from stats API - skip individual player detail fetches
       const nameParts = (goalie.goalieFullName || "").split(' ');
-      const firstName = player.firstName?.default || nameParts[0] || "";
-      const lastName = player.lastName?.default || nameParts.slice(1).join(' ') || goalie.goalieFullName || "";
-      const fullName = (player.firstName?.default && player.lastName?.default)
-        ? `${player.firstName.default} ${player.lastName.default}`
-        : (goalie.goalieFullName || `${firstName} ${lastName}`).trim() || "Unknown Player";
+      const firstName = nameParts[0] || "Unknown";
+      const lastName = nameParts.slice(1).join(' ') || "Player";
+      const fullName = goalie.goalieFullName || `${firstName} ${lastName}`.trim() || "Unknown Player";
 
       // Use player matcher to ensure player exists (matches by NHL ID or name)
       const playerResult = await ensurePlayerExists({
         nhlId: goalie.playerId,
-        fullName: fullName || goalie.goalieFullName || "Unknown Player",
-        firstName: firstName || "Unknown",
-        lastName: lastName || "Player",
+        fullName: fullName,
+        firstName: firstName,
+        lastName: lastName,
         position: "G",
         team: goalie.teamAbbrevs?.split(',')[0] || null,
-        jerseyNumber: player.sweaterNumber || null,
-        height: player.heightInInches ? convertHeightToFeetInches(player.heightInInches) : null,
-        weight: player.weightInPounds || null,
-        birthDate: player.birthDate ? new Date(player.birthDate) : null,
-        birthCity: player.birthCity?.default || null,
-        birthCountry: player.birthCountry || null,
-        nationality: player.birthCountry ? getNationalityFromCountry(player.birthCountry) : null,
-        headshot: player.headshot || `https://assets.nhle.com/mugs/nhl/latest/${goalie.playerId}.png`,
+        headshot: `https://assets.nhle.com/mugs/nhl/latest/${goalie.playerId}.png`,
         isActive: true,
       });
 
@@ -650,25 +573,12 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // If no seasons specified, default to current season plus recent past seasons
+    // If no seasons specified, default to current season only
+    // Historical data doesn't change, so only refresh on initial setup via explicit request
     if (seasons.length === 0) {
       const currentSeason = getCurrentSeason();
       seasons = [currentSeason];
-      
-      // Also include the last 3 previous seasons for historical data
-      // Parse current season (e.g., "20252026" -> 2025, 2026)
-      const currentYear1 = parseInt(currentSeason.substring(0, 4));
-      const currentYear2 = parseInt(currentSeason.substring(4, 8));
-      
-      // Calculate previous seasons (going backwards)
-      for (let i = 1; i <= 3; i++) {
-        const prevYear1 = currentYear1 - i;
-        const prevYear2 = currentYear2 - i;
-        const seasonId = `${prevYear1}${prevYear2}`;
-        seasons.push(seasonId);
-      }
-      
-      console.log(`📅 Defaulting to current season plus recent seasons: ${seasons.join(', ')}`);
+      console.log(`📅 Defaulting to current season: ${currentSeason}`);
     }
     
     console.log(`📊 Processing ${seasons.length} season(s): ${seasons.join(', ')}`);

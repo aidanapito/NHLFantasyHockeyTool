@@ -380,8 +380,29 @@ function filterGamesByWeek(games: NHLGame[], weekStart: Date, weekEnd: Date): NH
 
 /**
  * Merge ESPN standings stats into team stats (season totals)
+ * For goalie stats: if standings has 0 but currentStats has a value, prefer currentStats
+ * (this handles cases where ESPN scraper failed to extract goalie stats)
  */
 function mergeStandingsStats(currentStats: TeamStats, standings: any): TeamStats {
+  // Helper to get goalie stat with intelligent fallback
+  // If standings is 0 but currentStats has a positive value, use currentStats
+  const getGoalieStat = (standingsKey: string, currentValue: number | undefined): number => {
+    const standingsVal = standings[standingsKey]
+    const currentVal = currentValue ?? 0
+    
+    // If standings has a valid positive value, use it
+    if (standingsVal !== undefined && standingsVal !== null && Number(standingsVal) > 0) {
+      return Number(standingsVal)
+    }
+    // If standings is 0 or missing but currentStats has a value, use currentStats
+    if (currentVal > 0) {
+      console.log(`[Matchup Analyzer] Using DB fallback for ${standingsKey}: ${currentVal} (standings was ${standingsVal})`)
+      return currentVal
+    }
+    // Default to standings value if it exists, otherwise 0
+    return standingsVal !== undefined && standingsVal !== null ? Number(standingsVal) : 0
+  }
+
   return {
     // Skater stats from ESPN standings (season totals)
     goals: standings.G !== undefined && standings.G !== null ? Number(standings.G) : (currentStats.goals ?? 0),
@@ -395,15 +416,15 @@ function mergeStandingsStats(currentStats: TeamStats, standings: any): TeamStats
     blockedShots: standings.BLK !== undefined && standings.BLK !== null ? Number(standings.BLK) : (standings.blockedShots !== undefined ? Number(standings.blockedShots) : (standings.blocks !== undefined ? Number(standings.blocks) : (currentStats.blockedShots ?? 0))),
     faceoffsWon: standings.FOW !== undefined && standings.FOW !== null ? Number(standings.FOW) : (standings.faceoffsWon !== undefined ? Number(standings.faceoffsWon) : (currentStats.faceoffsWon ?? 0)),
     
-    // Goalie stats from ESPN standings
-    wins: standings.W !== undefined && standings.W !== null ? Number(standings.W) : (currentStats.wins ?? 0),
-    shutouts: standings.SO !== undefined && standings.SO !== null ? Number(standings.SO) : (currentStats.shutouts ?? 0),
+    // Goalie stats from ESPN standings - with fallback for missing/zero values
+    wins: getGoalieStat('W', currentStats.wins),
+    shutouts: getGoalieStat('SO', currentStats.shutouts),
     saves: standings.saves !== undefined && standings.saves !== null ? Number(standings.saves) : (currentStats.saves ?? 0),
     goalsAgainst: standings.GA !== undefined && standings.GA !== null ? Number(standings.GA) : (currentStats.goalsAgainst ?? 0),
     
-    // Calculated stats
-    gaa: standings.GAA !== undefined && standings.GAA !== null ? Number(standings.GAA) : (currentStats.gaa ?? 0),
-    savePct: standings.SV !== undefined && standings.SV !== null 
+    // Calculated stats - with fallback for missing/zero values
+    gaa: getGoalieStat('GAA', currentStats.gaa),
+    savePct: standings.SV !== undefined && standings.SV !== null && Number(standings.SV) > 0
       ? (typeof standings.SV === 'number' 
           ? (standings.SV > 1 ? standings.SV : standings.SV * 100) 
           : parseFloat(String(standings.SV)) * 100)
