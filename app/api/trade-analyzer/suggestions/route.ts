@@ -93,15 +93,18 @@ function analyzeTeamNeeds(
 
 /**
  * Convert season format (e.g., '2026' -> '20252026')
+ * NHL seasons are named after the ending year (2025-26 = 20252026)
+ * So if someone enters "2026", they mean the season ending in 2026, which is 2025-26
  */
 function convertSeasonFormat(season: string): string {
   // If already in full format (e.g., '20252026'), return as is
   if (season.length === 8) return season;
   // If short format (e.g., '2026'), convert to full format
+  // "2026" means the season ending in 2026, which is 2025-26 = "20252026"
   if (season.length === 4) {
-    const year = parseInt(season);
-    const nextYear = year + 1;
-    return `${year}${nextYear.toString().slice(-2)}`;
+    const endYear = parseInt(season);
+    const startYear = endYear - 1;
+    return `${startYear}${endYear}`;
   }
   // Default fallback
   return '20252026';
@@ -159,22 +162,35 @@ async function findTargetPlayers(
   orderByClause[topCategoryField] = orderDirection;
   
   // Try current season first
+  // Build the where clause properly - construct player filter all at once
+  const playerFilter: any = {
+    isActive: true,
+  };
+  
+  // Only add nhlId exclusion if we have IDs to exclude
+  if (excludeIds.length > 0) {
+    playerFilter.nhlId = {
+      notIn: excludeIds,
+    };
+  }
+  
+  const whereClause: any = {
+    season: dbSeason,
+    gameType: 'regular',
+    player: playerFilter,
+  };
+  
+  // Add the category field filter separately to avoid any dynamic property issues
+  if (topCategoryField) {
+    whereClause[topCategoryField] = {
+      not: null,
+    };
+  }
+  
+  console.log('Querying with where clause:', JSON.stringify(whereClause, null, 2));
+  
   let statsQuery = await prisma.playerStats.findMany({
-    where: {
-      season: dbSeason,
-      gameType: 'regular',
-      player: {
-        isActive: true,
-        ...(excludeIds.length > 0 && {
-          nhlId: {
-            notIn: excludeIds,
-          },
-        }),
-      },
-      [topCategoryField]: {
-        not: null,
-      },
-    },
+    where: whereClause,
     include: {
       player: true,
     },
@@ -187,21 +203,32 @@ async function findTargetPlayers(
   // If not enough, try any season
   if (statsQuery.length < 10) {
     console.log(`Not enough players for ${dbSeason}, trying any season...`);
+    // Build where clause for fallback query - construct player filter all at once
+    const fallbackPlayerFilter: any = {
+      isActive: true,
+    };
+    
+    // Only add nhlId exclusion if we have IDs to exclude
+    if (excludeIds.length > 0) {
+      fallbackPlayerFilter.nhlId = {
+        notIn: excludeIds,
+      };
+    }
+    
+    const fallbackWhereClause: any = {
+      gameType: 'regular',
+      player: fallbackPlayerFilter,
+    };
+    
+    // Add the category field filter separately
+    if (topCategoryField) {
+      fallbackWhereClause[topCategoryField] = {
+        not: null,
+      };
+    }
+    
     const allStatsQuery = await prisma.playerStats.findMany({
-      where: {
-        gameType: 'regular',
-        player: {
-          isActive: true,
-          ...(excludeIds.length > 0 && {
-            nhlId: {
-              notIn: excludeIds,
-            },
-          }),
-        },
-        [topCategoryField]: {
-          not: null,
-        },
-      },
+      where: fallbackWhereClause,
       include: {
         player: true,
       },
@@ -291,24 +318,78 @@ export async function POST(request: NextRequest) {
     }
     
     // Fetch standings to analyze team needs
-    const standingsResponse = await fetch(
-      `${request.nextUrl.origin}/api/fantasy/espn-standings?leagueId=${leagueId}&season=${season}`
-    );
-    
-    if (!standingsResponse.ok) {
+    let standingsResponse;
+    try {
+      standingsResponse = await fetch(
+        `${request.nextUrl.origin}/api/fantasy/espn-standings?leagueId=${leagueId}&season=${season}`,
+        {
+          signal: AbortSignal.timeout(30000), // 30 second timeout
+        }
+      );
+    } catch (error: any) {
+      console.error('Error fetching standings:', error);
       return NextResponse.json(
-        { error: 'Failed to fetch standings' },
+        { 
+          error: 'Failed to fetch standings',
+          message: error.message || 'Request timed out or network error',
+          details: 'Make sure your ESPN league ID and season are correct. You may need to refresh your ESPN login session.'
+        },
         { status: 500 }
       );
     }
     
-    const standingsData = await standingsResponse.json();
-    const allStandings = standingsData.standings || standingsData;
+    if (!standingsResponse.ok) {
+      let errorMessage = 'Failed to fetch standings';
+      try {
+        const errorData = await standingsResponse.json().catch(() => ({}));
+        errorMessage = errorData.error || errorData.message || errorMessage;
+      } catch (e) {
+        // Ignore JSON parse errors
+      }
+      
+      return NextResponse.json(
+        { 
+          error: errorMessage,
+          status: standingsResponse.status,
+          details: standingsResponse.status === 401 
+            ? 'ESPN session expired. Please run "npm run espn-login" to refresh your session.'
+            : 'Check your league ID and season are correct.'
+        },
+        { status: standingsResponse.status }
+      );
+    }
+    
+    let standingsData;
+    try {
+      standingsData = await standingsResponse.json();
+    } catch (error) {
+      return NextResponse.json(
+        { error: 'Failed to parse standings response', message: 'Invalid JSON from standings API' },
+        { status: 500 }
+      );
+    }
+    
+    const allStandings = standingsData.standings || standingsData || [];
     
     if (!Array.isArray(allStandings)) {
+      console.error('Invalid standings format:', standingsData);
       return NextResponse.json(
-        { error: 'Invalid standings data format' },
+        { 
+          error: 'Invalid standings data format',
+          details: 'Expected an array of standings, but received a different format. Check the ESPN API response.',
+          receivedType: typeof standingsData
+        },
         { status: 500 }
+      );
+    }
+    
+    if (allStandings.length === 0) {
+      return NextResponse.json(
+        { 
+          error: 'No standings data found',
+          details: `No teams found for league ${leagueId} in season ${season}. Make sure the season and league ID are correct.`
+        },
+        { status: 404 }
       );
     }
     

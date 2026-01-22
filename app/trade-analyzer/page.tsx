@@ -129,7 +129,8 @@ export default function TradeAnalyzerPage() {
   const [searchResults, setSearchResults] = useState<Player[]>([]);
   const [teamAPlayers, setTeamAPlayers] = useState<Player[]>([]);
   const [teamBPlayers, setTeamBPlayers] = useState<Player[]>([]);
-  const [analysis, setAnalysis] = useState<EnhancedTradeAnalysis | null>(null);
+  // Analysis can be either enhanced or category-based format
+  const [analysis, setAnalysis] = useState<EnhancedTradeAnalysis | any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [tradeSuggestions, setTradeSuggestions] = useState<any>(null);
@@ -346,46 +347,49 @@ export default function TradeAnalyzerPage() {
 
   // Calculate projected standings after trade
   function getProjectedStandings(): StandingsEntry[] {
-    if (!standings.length || !analysis?.categoryImpact) return standings;
+    // Handle both categoryImpact (enhanced) and categoryImpacts/netCategoryChanges (category-based)
+    const categoryChanges = analysis?.categoryImpact?.netChange || analysis?.netCategoryChanges;
+    if (!standings.length || !categoryChanges) return standings;
 
     return standings.map(team => {
+      // Use the unified categoryChanges variable
       if (team.teamName === selectedTeamA) {
         // Team A is losing sideA stats, gaining sideB stats
         return {
           ...team,
-          G: (team.G || 0) + (analysis.categoryImpact.netChange.G || 0),
-          A: (team.A || 0) + (analysis.categoryImpact.netChange.A || 0),
-          PTS: (team.G || 0) + (team.A || 0) + (analysis.categoryImpact.netChange.G || 0) + (analysis.categoryImpact.netChange.A || 0),
-          plusMinus: (team.plusMinus || 0) + (analysis.categoryImpact.netChange['±'] || 0),
-          PIM: (team.PIM || 0) + (analysis.categoryImpact.netChange.PIM || 0),
-          PPP: (team.PPP || 0) + (analysis.categoryImpact.netChange.PPP || 0),
-          FOW: (team.FOW || 0) + (analysis.categoryImpact.netChange.FOW || 0),
-          SOG: (team.SOG || 0) + (analysis.categoryImpact.netChange.SOG || 0),
-          HIT: (team.HIT || 0) + (analysis.categoryImpact.netChange.HIT || 0),
-          BLK: (team.BLK || 0) + (analysis.categoryImpact.netChange.BLK || 0),
-          W: (team.W || 0) + (analysis.categoryImpact.netChange.W || 0),
-          SO: (team.SO || 0) + (analysis.categoryImpact.netChange.SO || 0),
-          GAA: team.GAA ? team.GAA + (analysis.categoryImpact.netChange.GAA || 0) : undefined,
-          SV: team.SV ? team.SV + (analysis.categoryImpact.netChange['SV%'] || 0) : undefined,
+          G: (team.G || 0) + (categoryChanges.G || 0),
+          A: (team.A || 0) + (categoryChanges.A || 0),
+          PTS: (team.G || 0) + (team.A || 0) + (categoryChanges.G || 0) + (categoryChanges.A || 0),
+          plusMinus: (team.plusMinus || 0) + (categoryChanges['±'] || 0),
+          PIM: (team.PIM || 0) + (categoryChanges.PIM || 0),
+          PPP: (team.PPP || 0) + (categoryChanges.PPP || 0),
+          FOW: (team.FOW || 0) + (categoryChanges.FOW || 0),
+          SOG: (team.SOG || 0) + (categoryChanges.SOG || 0),
+          HIT: (team.HIT || 0) + (categoryChanges.HIT || 0),
+          BLK: (team.BLK || 0) + (categoryChanges.BLK || 0),
+          W: (team.W || 0) + (categoryChanges.W || 0),
+          SO: (team.SO || 0) + (categoryChanges.SO || 0),
+          GAA: team.GAA ? team.GAA + (categoryChanges.GAA || 0) : undefined,
+          SV: team.SV ? team.SV + (categoryChanges['SV%'] || 0) : undefined,
         };
       } else if (team.teamName === selectedTeamB) {
         // Team B is losing sideB stats, gaining sideA stats (opposite of Team A)
         return {
           ...team,
-          G: (team.G || 0) - (analysis.categoryImpact.netChange.G || 0),
-          A: (team.A || 0) - (analysis.categoryImpact.netChange.A || 0),
-          PTS: (team.G || 0) + (team.A || 0) - (analysis.categoryImpact.netChange.G || 0) - (analysis.categoryImpact.netChange.A || 0),
-          plusMinus: (team.plusMinus || 0) - (analysis.categoryImpact.netChange['±'] || 0),
-          PIM: (team.PIM || 0) - (analysis.categoryImpact.netChange.PIM || 0),
-          PPP: (team.PPP || 0) - (analysis.categoryImpact.netChange.PPP || 0),
-          FOW: (team.FOW || 0) - (analysis.categoryImpact.netChange.FOW || 0),
-          SOG: (team.SOG || 0) - (analysis.categoryImpact.netChange.SOG || 0),
-          HIT: (team.HIT || 0) - (analysis.categoryImpact.netChange.HIT || 0),
-          BLK: (team.BLK || 0) - (analysis.categoryImpact.netChange.BLK || 0),
-          W: (team.W || 0) - (analysis.categoryImpact.netChange.W || 0),
-          SO: (team.SO || 0) - (analysis.categoryImpact.netChange.SO || 0),
-          GAA: team.GAA ? team.GAA - (analysis.categoryImpact.netChange.GAA || 0) : undefined,
-          SV: team.SV ? team.SV - (analysis.categoryImpact.netChange['SV%'] || 0) : undefined,
+          G: (team.G || 0) - (categoryChanges.G || 0),
+          A: (team.A || 0) - (categoryChanges.A || 0),
+          PTS: (team.G || 0) + (team.A || 0) - (categoryChanges.G || 0) - (categoryChanges.A || 0),
+          plusMinus: (team.plusMinus || 0) - (categoryChanges['±'] || 0),
+          PIM: (team.PIM || 0) - (categoryChanges.PIM || 0),
+          PPP: (team.PPP || 0) - (categoryChanges.PPP || 0),
+          FOW: (team.FOW || 0) - (categoryChanges.FOW || 0),
+          SOG: (team.SOG || 0) - (categoryChanges.SOG || 0),
+          HIT: (team.HIT || 0) - (categoryChanges.HIT || 0),
+          BLK: (team.BLK || 0) - (categoryChanges.BLK || 0),
+          W: (team.W || 0) - (categoryChanges.W || 0),
+          SO: (team.SO || 0) - (categoryChanges.SO || 0),
+          GAA: team.GAA ? team.GAA - (categoryChanges.GAA || 0) : undefined,
+          SV: team.SV ? team.SV - (categoryChanges['SV%'] || 0) : undefined,
         };
       }
       return team;
@@ -399,23 +403,40 @@ export default function TradeAnalyzerPage() {
     setIsLoading(true);
     try {
       const response = await fetch(`/api/fantasy/search-players?q=${encodeURIComponent(searchQuery)}&limit=20`);
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('Search failed:', errorData);
+        alert(`Failed to search players: ${errorData.error || 'Unknown error'}`);
+        setSearchResults([]);
+        return;
+      }
+      
       const data = await response.json();
       
+      // API returns { players: [...] }, handle both formats
+      const playersArray = Array.isArray(data) ? data : (data.players || []);
+      
       // Transform to our format
-      const players = Array.isArray(data) ? data.map((player: any) => ({
+      const players = playersArray.map((player: any) => ({
         id: player.nhlId?.toString() || player.id?.toString(),
         nhlId: player.nhlId || player.id,
         name: player.firstName && player.lastName 
           ? `${player.firstName} ${player.lastName}`
-          : player.name || `${player.firstName} ${player.lastName}`,
-        position: player.position,
+          : player.name || `${player.firstName || ''} ${player.lastName || ''}`.trim() || 'Unknown Player',
+        position: player.position || 'N/A',
         team: player.team || 'N/A',
-        stats: player.stats,
-      })) : [];
+        stats: Array.isArray(player.stats) ? player.stats[0] : player.stats,
+      }));
       
       setSearchResults(players);
+      
+      if (players.length === 0) {
+        console.log('No players found for query:', searchQuery);
+      }
     } catch (error) {
       console.error('Search failed:', error);
+      alert(`Failed to search players: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setSearchResults([]);
     } finally {
       setIsLoading(false);
@@ -446,6 +467,8 @@ export default function TradeAnalyzerPage() {
     setTeamBPlayers(teamBPlayers.filter(p => p.nhlId !== playerId));
   }
 
+  const [useCategoryAnalysis, setUseCategoryAnalysis] = useState(true); // Default to category-based
+
   // Evaluate trade
   async function evaluateTrade() {
     if (teamAPlayers.length === 0 || teamBPlayers.length === 0) {
@@ -453,17 +476,40 @@ export default function TradeAnalyzerPage() {
       return;
     }
 
+    // Validate max 3 players per side for category analysis
+    if (useCategoryAnalysis && (teamAPlayers.length > 3 || teamBPlayers.length > 3)) {
+      alert('Category-based analysis supports a maximum of 3 players per side');
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const response = await fetch('/api/trade-analyzer/enhanced', {
+      const endpoint = useCategoryAnalysis 
+        ? '/api/trade-analyzer/category'
+        : '/api/trade-analyzer/enhanced';
+      
+      const requestBody = useCategoryAnalysis
+        ? {
+            sideA: teamAPlayers.map(p => ({ playerId: p.id, nhlId: p.nhlId })),
+            sideB: teamBPlayers.map(p => ({ playerId: p.id, nhlId: p.nhlId })),
+            sideAName: selectedTeamA || 'Team A',
+            sideBName: selectedTeamB || 'Team B',
+            season: '20252026',
+            timePeriod: 'season',
+            myTeamId: selectedTeamA,
+            leagueId: leagueId,
+          }
+        : {
+            sideA: teamAPlayers.map(p => p.nhlId.toString()),
+            sideB: teamBPlayers.map(p => p.nhlId.toString()),
+            sideAName: selectedTeamA || 'Team A',
+            sideBName: selectedTeamB || 'Team B',
+          };
+      
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sideA: teamAPlayers.map(p => p.nhlId.toString()),
-          sideB: teamBPlayers.map(p => p.nhlId.toString()),
-          sideAName: selectedTeamA || 'Team A',
-          sideBName: selectedTeamB || 'Team B',
-        }),
+        body: JSON.stringify(requestBody),
       });
       
       if (!response.ok) {
@@ -472,7 +518,24 @@ export default function TradeAnalyzerPage() {
       }
       
       const data = await response.json();
-      setAnalysis(data.analysis);
+      
+      // Handle different response formats
+      if (data.success && data.data) {
+        // Category analysis format: { success: true, data: analysis }
+        setAnalysis(data.data);
+      } else if (data.analysis) {
+        // Enhanced analysis format: { analysis: ... }
+        setAnalysis(data.analysis);
+      } else {
+        // Fallback: use data directly
+        setAnalysis(data);
+      }
+      
+      console.log('Trade analysis received:', {
+        hasAnalysis: !!data.data || !!data.analysis,
+        sideA: data.data?.sideA || data.analysis?.sideA,
+        sideB: data.data?.sideB || data.analysis?.sideB,
+      });
     } catch (error) {
       console.error('Evaluation failed:', error);
       alert(`Failed to evaluate trade: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -981,17 +1044,48 @@ export default function TradeAnalyzerPage() {
         </div>
       </div>
 
+      {/* Analysis Mode Toggle */}
+      <div className="bg-white rounded-lg shadow-md p-4 mb-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <label className="text-sm font-semibold text-gray-700">Analysis Mode:</label>
+            <p className="text-xs text-gray-500 mt-1">
+              {useCategoryAnalysis 
+                ? 'Category-based analysis (optimized for categories leagues)' 
+                : 'Enhanced analysis (TPV + projections)'}
+            </p>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              checked={useCategoryAnalysis}
+              onChange={(e) => setUseCategoryAnalysis(e.target.checked)}
+              className="sr-only peer"
+            />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+            <span className="ml-3 text-sm font-medium text-gray-700">
+              {useCategoryAnalysis ? 'Category Mode' : 'Enhanced Mode'}
+            </span>
+          </label>
+        </div>
+        {useCategoryAnalysis && (teamAPlayers.length > 3 || teamBPlayers.length > 3) && (
+          <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
+            ⚠️ Category analysis supports max 3 players per side. Please remove {Math.max(0, teamAPlayers.length - 3) + Math.max(0, teamBPlayers.length - 3)} player(s).
+          </div>
+        )}
+      </div>
+
       {/* Evaluate Button */}
       <div className="flex gap-4 justify-center mb-8">
         <button
           onClick={evaluateTrade}
-          disabled={isLoading || teamAPlayers.length === 0 || teamBPlayers.length === 0}
+          disabled={isLoading || teamAPlayers.length === 0 || teamBPlayers.length === 0 || (useCategoryAnalysis && (teamAPlayers.length > 3 || teamBPlayers.length > 3))}
           className="px-8 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-lg flex items-center gap-2"
         >
           {isLoading ? 'Analyzing...' : (
             <>
               <BarChart3 className="w-5 h-5" />
-              Analyze Trade
+              Analyze Trade {useCategoryAnalysis ? '(Category-Based)' : '(Enhanced)'}
             </>
           )}
         </button>
@@ -1017,29 +1111,33 @@ export default function TradeAnalyzerPage() {
               <div className="text-3xl font-bold text-gray-900 mb-2">
                 {analysis.recommendation.toUpperCase().replace(/-/g, ' ')}
               </div>
-              <div className="text-gray-600">{analysis.reasoning}</div>
+              <div className="text-gray-600">
+                {Array.isArray(analysis.reasoning) ? analysis.reasoning.join('. ') : analysis.reasoning}
+              </div>
             </div>
           </div>
 
           {/* Fairness Meter */}
-          <div className="mb-8">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-lg font-semibold">Fairness Score</span>
-              <span className="text-2xl font-bold">{analysis.fairnessScore}/100</span>
+          {analysis.fairnessScore !== undefined && (
+            <div className="mb-8">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-lg font-semibold">Fairness Score</span>
+                <span className="text-2xl font-bold">{analysis.fairnessScore}/100</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-4">
+                <div
+                  className={`h-4 rounded-full transition-all ${
+                    analysis.fairnessScore >= 80
+                      ? 'bg-green-500'
+                      : analysis.fairnessScore >= 60
+                      ? 'bg-yellow-500'
+                      : 'bg-red-500'
+                  }`}
+                  style={{ width: `${analysis.fairnessScore}%` }}
+                />
+              </div>
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-4">
-              <div
-                className={`h-4 rounded-full transition-all ${
-                  analysis.fairnessScore >= 80
-                    ? 'bg-green-500'
-                    : analysis.fairnessScore >= 60
-                    ? 'bg-yellow-500'
-                    : 'bg-red-500'
-                }`}
-                style={{ width: `${analysis.fairnessScore}%` }}
-              />
-            </div>
-          </div>
+          )}
           
           {/* Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
@@ -1048,14 +1146,20 @@ export default function TradeAnalyzerPage() {
                 <div className="text-sm font-semibold text-gray-700">Team A</div>
               </div>
               <div className="text-3xl font-bold text-blue-600 mb-1">
-                {analysis.sideA.compositeValue.toFixed(1)}
+                {useCategoryAnalysis 
+                  ? (analysis.sideA?.totalZScore?.toFixed(1) || '0.0')
+                  : (analysis.sideA?.compositeValue?.toFixed(1) || '0.0')}
             </div>
               <div className="text-xs text-gray-600 mb-2">
-                <span className="font-semibold">Composite Value</span> (60% current + 40% talent)
+                {useCategoryAnalysis 
+                  ? <span className="font-semibold">Total Z-Score</span>
+                  : <><span className="font-semibold">Composite Value</span> (60% current + 40% talent)</>}
               </div>
-              <div className="text-xs text-gray-500 mb-2">
-                Current: {analysis.sideA.totalTPV.toFixed(1)} TPV | Talent: {analysis.sideA.totalPPV.toFixed(1)} PPV
-              </div>
+              {!useCategoryAnalysis && (
+                <div className="text-xs text-gray-500 mb-2">
+                  Current: {analysis.sideA?.totalTPV?.toFixed(1) || '0.0'} TPV | Talent: {analysis.sideA?.totalPPV?.toFixed(1) || '0.0'} PPV
+                </div>
+              )}
               <div className="text-xs text-gray-600 mt-2 pt-2 border-t border-blue-200 space-y-1">
                 <div>
                   <span className="font-semibold text-red-700">↘ Giving Away:</span> {teamAPlayers.length} player{teamAPlayers.length !== 1 ? 's' : ''} → Team B
@@ -1070,14 +1174,20 @@ export default function TradeAnalyzerPage() {
                 <div className="text-sm font-semibold text-gray-700">Team B</div>
               </div>
               <div className="text-3xl font-bold text-purple-600 mb-1">
-                {analysis.sideB.compositeValue.toFixed(1)}
+                {useCategoryAnalysis 
+                  ? (analysis.sideB?.totalZScore?.toFixed(1) || '0.0')
+                  : (analysis.sideB?.compositeValue?.toFixed(1) || '0.0')}
               </div>
               <div className="text-xs text-gray-600 mb-2">
-                <span className="font-semibold">Composite Value</span> (60% current + 40% talent)
+                {useCategoryAnalysis 
+                  ? <span className="font-semibold">Total Z-Score</span>
+                  : <><span className="font-semibold">Composite Value</span> (60% current + 40% talent)</>}
               </div>
-              <div className="text-xs text-gray-500 mb-2">
-                Current: {analysis.sideB.totalTPV.toFixed(1)} TPV | Talent: {analysis.sideB.totalPPV.toFixed(1)} PPV
-              </div>
+              {!useCategoryAnalysis && (
+                <div className="text-xs text-gray-500 mb-2">
+                  Current: {analysis.sideB?.totalTPV?.toFixed(1) || '0.0'} TPV | Talent: {analysis.sideB?.totalPPV?.toFixed(1) || '0.0'} PPV
+                </div>
+              )}
               <div className="text-xs text-gray-600 mt-2 pt-2 border-t border-purple-200 space-y-1">
                 <div>
                   <span className="font-semibold text-red-700">↘ Giving Away:</span> {teamBPlayers.length} player{teamBPlayers.length !== 1 ? 's' : ''} → Team A
@@ -1092,41 +1202,78 @@ export default function TradeAnalyzerPage() {
           {/* Net Gain */}
           <div className="bg-indigo-50 border-l-4 border-indigo-400 p-4 mb-6">
             <div className="flex items-center gap-2">
-              {/* netCompositeGain = sideB.compositeValue - sideA.compositeValue represents Team A's net gain */}
-              {/* Composite value = 60% TPV (current) + 40% PPV (talent), so if netCompositeGain > 0, Team A gains */}
-              {analysis.netCompositeGain > 0 ? (
-                <>
-                  <TrendingUp className="w-6 h-6 text-green-600" />
-                  <span className="text-lg font-semibold text-green-600">
-                    Team A gains {Math.abs(analysis.netCompositeGain).toFixed(1)} net value
-                  </span>
-                  <span className="text-sm text-gray-600 ml-2">
-                    (Composite: 60% current + 40% talent)
-                  </span>
-                </>
-              ) : analysis.netCompositeGain < 0 ? (
-                <>
-                  <TrendingDown className="w-6 h-6 text-red-600" />
-                  <span className="text-lg font-semibold text-red-600">
-                    Team B gains {Math.abs(analysis.netCompositeGain).toFixed(1)} net value
-                  </span>
-                  <span className="text-sm text-gray-600 ml-2">
-                    (Composite: 60% current + 40% talent)
-                  </span>
-                </>
+              {useCategoryAnalysis ? (
+                // Category-based analysis
+                (() => {
+                  const netZScore = (analysis.sideB?.totalZScore || 0) - (analysis.sideA?.totalZScore || 0);
+                  return netZScore > 0 ? (
+                    <>
+                      <TrendingUp className="w-6 h-6 text-green-600" />
+                      <span className="text-lg font-semibold text-green-600">
+                        Team A gains {Math.abs(netZScore).toFixed(1)} net Z-score
+                      </span>
+                      <span className="text-sm text-gray-600 ml-2">
+                        (Category-based value)
+                      </span>
+                    </>
+                  ) : netZScore < 0 ? (
+                    <>
+                      <TrendingDown className="w-6 h-6 text-red-600" />
+                      <span className="text-lg font-semibold text-red-600">
+                        Team B gains {Math.abs(netZScore).toFixed(1)} net Z-score
+                      </span>
+                      <span className="text-sm text-gray-600 ml-2">
+                        (Category-based value)
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Minus className="w-6 h-6 text-gray-600" />
+                      <span className="text-lg font-semibold text-gray-600">
+                        Balanced trade
+                      </span>
+                    </>
+                  );
+                })()
               ) : (
-                <>
-                  <Minus className="w-6 h-6 text-gray-600" />
-                  <span className="text-lg font-semibold text-gray-600">
-                    Balanced trade
-                  </span>
-                </>
+                // Enhanced analysis
+                (() => {
+                  const netGain = analysis.netCompositeGain || 0;
+                  return netGain > 0 ? (
+                    <>
+                      <TrendingUp className="w-6 h-6 text-green-600" />
+                      <span className="text-lg font-semibold text-green-600">
+                        Team A gains {Math.abs(netGain).toFixed(1)} net value
+                      </span>
+                      <span className="text-sm text-gray-600 ml-2">
+                        (Composite: 60% current + 40% talent)
+                      </span>
+                    </>
+                  ) : netGain < 0 ? (
+                    <>
+                      <TrendingDown className="w-6 h-6 text-red-600" />
+                      <span className="text-lg font-semibold text-red-600">
+                        Team B gains {Math.abs(netGain).toFixed(1)} net value
+                      </span>
+                      <span className="text-sm text-gray-600 ml-2">
+                        (Composite: 60% current + 40% talent)
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Minus className="w-6 h-6 text-gray-600" />
+                      <span className="text-lg font-semibold text-gray-600">
+                        Balanced trade
+                      </span>
+                    </>
+                  );
+                })()
               )}
             </div>
           </div>
 
           {/* Category Impact Table */}
-          {analysis.categoryImpact && (
+          {(analysis.categoryImpact || analysis.categoryImpacts) && (
             <div className="bg-white border-2 border-gray-300 rounded-lg p-6 mb-6">
               <div className="font-semibold text-lg text-gray-800 mb-4 flex items-center gap-2">
                 <BarChart3 className="w-5 h-5" />
@@ -1154,9 +1301,9 @@ export default function TradeAnalyzerPage() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {Object.entries(analysis.categoryImpact.netChange).map(([category, netChange]) => {
-                      const givingAway = analysis.categoryImpact?.sideA[category] || 0
-                      const receiving = analysis.categoryImpact?.sideB[category] || 0
+                    {Object.entries((analysis.categoryImpact?.netChange || analysis.netCategoryChanges || {})).map(([category, netChange]) => {
+                      const givingAway = analysis.categoryImpact?.sideA?.[category] || analysis.sideA?.categoryStats?.[category] || 0
+                      const receiving = analysis.categoryImpact?.sideB?.[category] || analysis.sideB?.categoryStats?.[category] || 0
                       
                       // Determine if this is a "lower is better" stat (GAA)
                       const lowerIsBetter = category === 'GAA'
@@ -1415,14 +1562,14 @@ export default function TradeAnalyzerPage() {
           )}
 
           {/* Detailed Insights */}
-          {analysis.detailedInsights && analysis.detailedInsights.length > 0 && (
+          {((analysis.detailedInsights && analysis.detailedInsights.length > 0) || (analysis.insights && analysis.insights.length > 0)) && (
           <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
               <div className="font-semibold text-yellow-800 mb-2 flex items-center gap-2">
                 <Info className="w-5 h-5" />
                 Key Insights
           </div>
               <ul className="list-disc list-inside text-yellow-700 space-y-1">
-                {analysis.detailedInsights.map((insight, idx) => (
+                {(analysis.detailedInsights || analysis.insights || []).map((insight: string, idx: number) => (
                   <li key={idx}>{insight}</li>
                 ))}
               </ul>
@@ -1476,35 +1623,53 @@ export default function TradeAnalyzerPage() {
                   <div className="text-sm font-semibold text-gray-700 mb-2 px-2">
                     Players Team A is Sending:
                   </div>
-                  {analysis.playerBreakdown.sideA.map((playerData, idx) => (
-                    <div key={idx} className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                      <div className="font-medium text-lg mb-2">{playerData.player.name}</div>
-                      {playerData.tpv !== undefined && (
-                        <div className="text-sm text-gray-600 mb-2">
-                          <strong>TPV:</strong> {playerData.tpv.toFixed(1)}
-                        </div>
-                      )}
-                      {playerData.riskMetrics && (
-                        <div className="text-sm space-y-1">
-                          <div>
-                            <strong>Trend:</strong> {playerData.riskMetrics.trend} 
-                            ({playerData.riskMetrics.trendStrength}/100)
+                  {(analysis.playerBreakdown?.sideA || analysis.sideA?.players || []).map((playerData: any, idx: number) => {
+                    // Handle both formats: enhanced has playerData.player, category has playerData.player directly
+                    const player = playerData.player || playerData;
+                    const playerName = player.name || `${player.firstName || ''} ${player.lastName || ''}`.trim() || 'Unknown Player';
+                    
+                    return (
+                      <div key={idx} className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                        <div className="font-medium text-lg mb-2">{playerName}</div>
+                        {!useCategoryAnalysis && playerData.tpv !== undefined && (
+                          <div className="text-sm text-gray-600 mb-2">
+                            <strong>TPV:</strong> {playerData.tpv.toFixed(1)}
                           </div>
-                          <div>
-                            <strong>Consistency:</strong> {playerData.riskMetrics.consistencyRating}
-                            {playerData.riskMetrics.boomOrBust && ' (Boom-or-Bust)'}
+                        )}
+                        {useCategoryAnalysis && playerData.totalZScore !== undefined && (
+                          <div className="text-sm text-gray-600 mb-2">
+                            <strong>Total Z-Score:</strong> {playerData.totalZScore.toFixed(2)}
                           </div>
-                        </div>
-                      )}
-                      {playerData.rosProjection && (
-                        <div className="text-sm mt-2 pt-2 border-t border-blue-200">
-                          <strong>ROS Projected:</strong> {playerData.rosProjection.projectedFantasyPointsPerGame.toFixed(1)} FPPG
-                          <br />
-                          <strong>Confidence:</strong> {playerData.rosProjection.confidence}%
-                        </div>
-                      )}
-                  </div>
-                ))}
+                        )}
+                        {!useCategoryAnalysis && playerData.riskMetrics && (
+                          <div className="text-sm space-y-1">
+                            <div>
+                              <strong>Trend:</strong> {playerData.riskMetrics.trend} 
+                              ({playerData.riskMetrics.trendStrength}/100)
+                            </div>
+                            <div>
+                              <strong>Consistency:</strong> {playerData.riskMetrics.consistencyRating}
+                              {playerData.riskMetrics.boomOrBust && ' (Boom-or-Bust)'}
+                            </div>
+                          </div>
+                        )}
+                        {!useCategoryAnalysis && playerData.rosProjection && (
+                          <div className="text-sm mt-2 pt-2 border-t border-blue-200">
+                            <strong>ROS Projected:</strong> {playerData.rosProjection.projectedFantasyPointsPerGame.toFixed(1)} FPPG
+                            <br />
+                            <strong>Confidence:</strong> {playerData.rosProjection.confidence}%
+                          </div>
+                        )}
+                        {useCategoryAnalysis && playerData.gamesRemaining !== undefined && (
+                          <div className="text-sm mt-2 pt-2 border-t border-blue-200">
+                            <strong>Games Remaining:</strong> {playerData.gamesRemaining}
+                            <br />
+                            <strong>Strength of Schedule:</strong> {playerData.strengthOfSchedule?.toFixed(0) || 'N/A'}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
               </div>
             </div>
             <div>
@@ -1525,35 +1690,53 @@ export default function TradeAnalyzerPage() {
                   <div className="text-sm font-semibold text-gray-700 mb-2 px-2">
                     Players Team B is Sending:
                   </div>
-                  {analysis.playerBreakdown.sideB.map((playerData, idx) => (
-                    <div key={idx} className="bg-purple-50 p-4 rounded-lg border border-purple-200">
-                      <div className="font-medium text-lg mb-2">{playerData.player.name}</div>
-                      {playerData.tpv !== undefined && (
-                        <div className="text-sm text-gray-600 mb-2">
-                          <strong>TPV:</strong> {playerData.tpv.toFixed(1)}
-                        </div>
-                      )}
-                      {playerData.riskMetrics && (
-                        <div className="text-sm space-y-1">
-                          <div>
-                            <strong>Trend:</strong> {playerData.riskMetrics.trend} 
-                            ({playerData.riskMetrics.trendStrength}/100)
+                  {(analysis.playerBreakdown?.sideB || analysis.sideB?.players || []).map((playerData: any, idx: number) => {
+                    // Handle both formats: enhanced has playerData.player, category has playerData.player directly
+                    const player = playerData.player || playerData;
+                    const playerName = player.name || `${player.firstName || ''} ${player.lastName || ''}`.trim() || 'Unknown Player';
+                    
+                    return (
+                      <div key={idx} className="bg-purple-50 p-4 rounded-lg border border-purple-200">
+                        <div className="font-medium text-lg mb-2">{playerName}</div>
+                        {!useCategoryAnalysis && playerData.tpv !== undefined && (
+                          <div className="text-sm text-gray-600 mb-2">
+                            <strong>TPV:</strong> {playerData.tpv.toFixed(1)}
                           </div>
-                          <div>
-                            <strong>Consistency:</strong> {playerData.riskMetrics.consistencyRating}
-                            {playerData.riskMetrics.boomOrBust && ' (Boom-or-Bust)'}
+                        )}
+                        {useCategoryAnalysis && playerData.totalZScore !== undefined && (
+                          <div className="text-sm text-gray-600 mb-2">
+                            <strong>Total Z-Score:</strong> {playerData.totalZScore.toFixed(2)}
                           </div>
-                        </div>
-                      )}
-                      {playerData.rosProjection && (
-                        <div className="text-sm mt-2 pt-2 border-t border-purple-200">
-                          <strong>ROS Projected:</strong> {playerData.rosProjection.projectedFantasyPointsPerGame.toFixed(1)} FPPG
-                          <br />
-                          <strong>Confidence:</strong> {playerData.rosProjection.confidence}%
-                        </div>
-                      )}
-                  </div>
-                ))}
+                        )}
+                        {!useCategoryAnalysis && playerData.riskMetrics && (
+                          <div className="text-sm space-y-1">
+                            <div>
+                              <strong>Trend:</strong> {playerData.riskMetrics.trend} 
+                              ({playerData.riskMetrics.trendStrength}/100)
+                            </div>
+                            <div>
+                              <strong>Consistency:</strong> {playerData.riskMetrics.consistencyRating}
+                              {playerData.riskMetrics.boomOrBust && ' (Boom-or-Bust)'}
+                            </div>
+                          </div>
+                        )}
+                        {!useCategoryAnalysis && playerData.rosProjection && (
+                          <div className="text-sm mt-2 pt-2 border-t border-purple-200">
+                            <strong>ROS Projected:</strong> {playerData.rosProjection.projectedFantasyPointsPerGame.toFixed(1)} FPPG
+                            <br />
+                            <strong>Confidence:</strong> {playerData.rosProjection.confidence}%
+                          </div>
+                        )}
+                        {useCategoryAnalysis && playerData.gamesRemaining !== undefined && (
+                          <div className="text-sm mt-2 pt-2 border-t border-purple-200">
+                            <strong>Games Remaining:</strong> {playerData.gamesRemaining}
+                            <br />
+                            <strong>Strength of Schedule:</strong> {playerData.strengthOfSchedule?.toFixed(0) || 'N/A'}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
               </div>
             </div>
           </div>
