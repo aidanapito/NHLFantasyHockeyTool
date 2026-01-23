@@ -375,23 +375,40 @@ async function getGamesRemaining(
   season: string,
   asOfDate: Date = new Date()
 ): Promise<number> {
-  // Get remaining games from schedule (using GameLog data as proxy)
-  const remainingGames = await prisma.gameLog.findMany({
-    where: {
-      season,
-      gameType: 'regular',
-      team,
-      gameDate: {
-        gte: asOfDate,
+  try {
+    // Get the maximum games played for any player on this team
+    // This represents how many games the team has played
+    const teamMaxGames = await prisma.playerStats.findFirst({
+      where: {
+        season,
+        gameType: 'regular',
+        player: {
+          team: team,
+        },
       },
-    },
-    distinct: ['gameId'],
-    select: {
-      gameId: true,
-    },
-  })
-  
-  return remainingGames.length
+      select: {
+        gamesPlayed: true,
+      },
+      orderBy: {
+        gamesPlayed: 'desc', // Get the player with most games (represents team games played)
+      },
+    })
+    
+    if (!teamMaxGames || teamMaxGames.gamesPlayed === 0) {
+      console.warn(`⚠️ No stats found for team ${team} in season ${season}`)
+      return 0
+    }
+    
+    // NHL regular season is 82 games
+    const totalGamesInSeason = 82
+    const gamesRemaining = Math.max(0, totalGamesInSeason - teamMaxGames.gamesPlayed)
+    
+    console.log(`   Team ${team}: ${teamMaxGames.gamesPlayed} games played, ${gamesRemaining} games remaining`)
+    return gamesRemaining
+  } catch (error) {
+    console.error(`Error getting games remaining for ${team}:`, error)
+    return 0
+  }
 }
 
 /**
@@ -403,13 +420,47 @@ async function getStrengthOfSchedule(
   asOfDate: Date = new Date()
 ): Promise<number> {
   try {
+    console.log(`   Calculating SOS for team: ${team}, season: ${season}`)
+    
+    // Try to get SOS from the strength-of-schedule module
     const sosData = await computeRosStrengthOfSchedule(season, asOfDate)
-    const teamSos = sosData.get(team)
     
-    if (!teamSos) return 50 // Default middle value
+    console.log(`   SOS data map size: ${sosData.size}`)
+    if (sosData.size > 0) {
+      console.log(`   Available teams in SOS data: ${Array.from(sosData.keys()).slice(0, 5).join(', ')}...`)
+    }
     
-    // Convert SOS rating (0-100) to 0-100 scale where higher = easier
-    return teamSos.sosRating || 50
+    let teamSos = sosData.get(team)
+    
+    // Try case-insensitive match if exact match failed
+    if (!teamSos) {
+      const teamLower = team.toLowerCase()
+      for (const [key, value] of sosData.entries()) {
+        if (key.toLowerCase() === teamLower) {
+          teamSos = value
+          console.log(`   Found team with case-insensitive match: ${key}`)
+          break
+        }
+      }
+    }
+    
+    if (teamSos && teamSos.sosRating) {
+      const sosRating = teamSos.sosRating
+      console.log(`   Team ${team}: SOS rating ${sosRating.toFixed(1)}/100 (higher = easier)`)
+      return sosRating
+    }
+    
+    // Fallback: Since we don't have future schedule data in gameLog,
+    // we'll calculate a simple SOS based on the team's recent opponents
+    // This is a rough approximation until we can fetch the actual schedule
+    console.warn(`⚠️ No SOS data from schedule module for team ${team}, using fallback calculation`)
+    
+    // For now, return 50 as a neutral value
+    // TODO: Implement proper SOS by fetching schedule from NHL API or calculating
+    // based on remaining games vs teams with known defensive stats
+    console.warn(`   Using default SOS value (50) - future schedule data not available in gameLog`)
+    console.warn(`   Note: gameLog only contains past games, not future scheduled games`)
+    return 50 // Default middle value until we have proper schedule data
   } catch (error) {
     console.error(`Error calculating strength of schedule for ${team}:`, error)
     return 50 // Default middle value
@@ -748,8 +799,24 @@ export async function analyzeCategoryTrade(
     
     // Get games remaining and strength of schedule
     const team = dbPlayer.team || ''
-    const gamesRemaining = team ? await getGamesRemaining(team, season) : 0
-    const strengthOfSchedule = team ? await getStrengthOfSchedule(team, season) : 50
+    let gamesRemaining = 0
+    let strengthOfSchedule = 50
+    
+    if (team) {
+      try {
+        // Get games remaining based on team's games played (not individual player's GP)
+        gamesRemaining = await getGamesRemaining(team, season)
+        
+        // Get strength of schedule
+        strengthOfSchedule = await getStrengthOfSchedule(team, season)
+        
+        console.log(`   Team ${team}: ${gamesRemaining} games remaining, SOS: ${strengthOfSchedule.toFixed(1)}/100`)
+      } catch (error) {
+        console.error(`Error getting schedule info for ${team}:`, error)
+        gamesRemaining = 0
+        strengthOfSchedule = 50
+      }
+    }
     
     return {
       player: {

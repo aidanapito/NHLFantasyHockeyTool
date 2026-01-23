@@ -8,6 +8,7 @@ import {
   onLeagueSettingsUpdated,
   type LeagueSettings,
 } from '@/lib/league-settings'
+import { TEAM_NAME_TO_ABBREV, ABBREV_TO_FULL_NAME } from '@/lib/team-name-mapping'
 
 interface PlayerGame {
   gameId: number
@@ -318,28 +319,9 @@ export default function MatchupAnalyzer() {
         })
       }
 
-      // Direct mapping of full team names to abbreviations
-      const teamNameToAbbrev: Record<string, string> = {
-        'On the Hutson': 'Dady',
-        'No Longer Boeser than You': 'Mama',
-        'Yee Haw (screaming)': 'YH',
-        'Yee Haw': 'YH',
-        "Theo's Thrashers": 'MASH',
-        'Bros Before Hossas': 'Bros',
-        'Colonel Klink': 'KLNK',
-        "Spoked B's": 'KLUC',
-        'Buds 4 Ever!': 'Buds',
-        'Buds 4 ever': 'Buds',
-        "Stacy's Basketball Team": 'MAC',
-        'Stacys Basketball Team': 'MAC',
-        'Hockey Team': 'CBS',
-      }
-
-      // Reverse mapping: abbrev -> fullName
-      const abbrevToFullName: Record<string, string> = {}
-      Object.entries(teamNameToAbbrev).forEach(([fullName, abbrev]) => {
-        abbrevToFullName[abbrev.toUpperCase()] = fullName
-      })
+      // Use team name mapping from shared utility
+      const teamNameToAbbrev = TEAM_NAME_TO_ABBREV
+      const abbrevToFullName = ABBREV_TO_FULL_NAME
 
       // Fetch team data to get additional abbreviations for matching
       let teamAbbreviations: Record<string, string> = {} // abbrev -> fullName

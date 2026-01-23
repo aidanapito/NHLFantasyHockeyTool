@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { analyzeEnhancedTrade } from '@/lib/enhanced-trade-analyzer';
 import { prisma } from '@/lib/prisma';
+import { normalizeTeamName } from '@/lib/team-name-mapping';
 
 interface TradeSuggestion {
   targetTeam: string;
@@ -156,10 +157,32 @@ async function findTargetPlayers(
   // Strategy: Get players with the best stats in the top needed category
   // First try current season, then fall back to any season
   
-  // Build orderBy object dynamically based on category
+  // Build orderBy object - use explicit field mapping to avoid Prisma errors
   const orderDirection = topCategory.category === 'GAA' ? 'asc' : 'desc';
+  
+  // Build orderBy clause explicitly (Prisma doesn't like dynamic property access)
   const orderByClause: any = {};
-  orderByClause[topCategoryField] = orderDirection;
+  // Map category fields to actual Prisma field names
+  const orderByFieldMap: Record<string, string> = {
+    'goals': 'goals',
+    'assists': 'assists',
+    'plusMinus': 'plusMinus',
+    'pim': 'pim',
+    'powerPlayPoints': 'powerPlayPoints',
+    'faceoffsWon': 'faceoffsWon',
+    'shotsOnGoal': 'shotsOnGoal',
+    'hits': 'hits',
+    'blockedShots': 'blockedShots',
+    'wins': 'wins',
+    'shutouts': 'shutouts',
+    'savePct': 'savePct',
+    'gaa': 'gaa',
+  };
+  
+  const orderByField = orderByFieldMap[topCategoryField] || topCategoryField;
+  if (orderByField) {
+    orderByClause[orderByField] = orderDirection;
+  }
   
   // Try current season first
   // Build the where clause properly - construct player filter all at once
@@ -174,20 +197,26 @@ async function findTargetPlayers(
     };
   }
   
+  // Build where clause with explicit field filtering
   const whereClause: any = {
     season: dbSeason,
     gameType: 'regular',
     player: playerFilter,
   };
   
-  // Add the category field filter separately to avoid any dynamic property issues
-  if (topCategoryField) {
+  // Add the category field filter - use explicit field name
+  // Only filter if the field exists in the schema
+  const validFields = ['goals', 'assists', 'plusMinus', 'pim', 'powerPlayPoints', 
+                       'faceoffsWon', 'shotsOnGoal', 'hits', 'blockedShots', 
+                       'wins', 'shutouts', 'savePct', 'gaa'];
+  if (topCategoryField && validFields.includes(topCategoryField)) {
     whereClause[topCategoryField] = {
       not: null,
     };
   }
   
   console.log('Querying with where clause:', JSON.stringify(whereClause, null, 2));
+  console.log('OrderBy clause:', JSON.stringify(orderByClause, null, 2));
   
   let statsQuery = await prisma.playerStats.findMany({
     where: whereClause,
@@ -220,8 +249,11 @@ async function findTargetPlayers(
       player: fallbackPlayerFilter,
     };
     
-    // Add the category field filter separately
-    if (topCategoryField) {
+    // Add the category field filter - use explicit field name
+    const validFields = ['goals', 'assists', 'plusMinus', 'pim', 'powerPlayPoints', 
+                         'faceoffsWon', 'shotsOnGoal', 'hits', 'blockedShots', 
+                         'wins', 'shutouts', 'savePct', 'gaa'];
+    if (topCategoryField && validFields.includes(topCategoryField)) {
       fallbackWhereClause[topCategoryField] = {
         not: null,
       };
@@ -393,10 +425,21 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    const yourTeam = allStandings.find((t: any) => t.teamName === teamName);
+    // Normalize team name (convert abbrev to full name if needed)
+    const normalizedTeamName = normalizeTeamName(teamName);
+    
+    // Try to find team by normalized name first, then by original name
+    let yourTeam = allStandings.find((t: any) => t.teamName === normalizedTeamName);
+    if (!yourTeam) {
+      yourTeam = allStandings.find((t: any) => t.teamName === teamName);
+    }
+    
     if (!yourTeam) {
       return NextResponse.json(
-        { error: `Team "${teamName}" not found in standings` },
+        { 
+          error: `Team "${teamName}" not found in standings`,
+          details: `Available teams: ${allStandings.map((t: any) => t.teamName).join(', ')}`
+        },
         { status: 404 }
       );
     }

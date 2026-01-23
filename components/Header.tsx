@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
-import { Home, Users, BarChart3 } from 'lucide-react'
+import { Home, Users, BarChart3, ArrowLeftRight } from 'lucide-react'
 
 import LeagueSyncButton from './LeagueSyncButton'
 
@@ -26,6 +26,7 @@ function NavigationLinks() {
     { href: '/?tab=stats', label: 'Home', icon: Home },
     { href: '/?tab=team-info', label: 'Team Info', icon: Users },
     { href: '/matchup-analyzer', label: 'Matchup Analyzer', icon: BarChart3 },
+    { href: '/trade-analyzer', label: 'Trade Analyzer', icon: ArrowLeftRight },
   ]
 
   return (
@@ -62,6 +63,7 @@ function NavigationLinksFallback() {
     { href: '/?tab=stats', label: 'Home', icon: Home },
     { href: '/?tab=team-info', label: 'Team Info', icon: Users },
     { href: '/matchup-analyzer', label: 'Matchup Analyzer', icon: BarChart3 },
+    { href: '/trade-analyzer', label: 'Trade Analyzer', icon: ArrowLeftRight },
   ]
 
   return (

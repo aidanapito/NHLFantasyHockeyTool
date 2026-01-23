@@ -1,10 +1,17 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { 
   Search, TrendingUp, TrendingDown, Minus, X, AlertCircle, 
   CheckCircle, BarChart3, Info, Target, Zap
 } from 'lucide-react';
+import Header from '@/components/Header';
+import {
+  loadLeagueSettings,
+  onLeagueSettingsUpdated,
+  type LeagueSettings,
+} from '@/lib/league-settings';
+import { normalizeTeamName } from '@/lib/team-name-mapping';
 
 interface Player {
   id: string;
@@ -117,14 +124,14 @@ interface StandingsEntry {
 }
 
 export default function TradeAnalyzerPage() {
-  const [leagueId, setLeagueId] = useState('91445140');
-  const [season, setSeason] = useState('2026');
+  const [leagueSettings, setLeagueSettings] = useState<LeagueSettings | null>(null);
   const [selectedTeamA, setSelectedTeamA] = useState<string>('');
   const [selectedTeamB, setSelectedTeamB] = useState<string>('');
   const [teams, setTeams] = useState<FantasyTeam[]>([]);
   const [standings, setStandings] = useState<StandingsEntry[]>([]);
   const [loadingTeams, setLoadingTeams] = useState(false);
   const [loadingStandings, setLoadingStandings] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Player[]>([]);
   const [teamAPlayers, setTeamAPlayers] = useState<Player[]>([]);
@@ -137,92 +144,109 @@ export default function TradeAnalyzerPage() {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
-  // Fetch teams from league
-  async function fetchTeams() {
-    if (!leagueId || !season) {
-      alert('Please enter League ID and Season');
-      return;
-    }
-    
-    setLoadingTeams(true);
-    try {
-      // Try ESPN standings API first to get team names
-      const standingsResponse = await fetch(`/api/fantasy/espn-standings?leagueId=${leagueId}&season=${season}`);
-      
-      if (!standingsResponse.ok) {
-        const errorData = await standingsResponse.json().catch(() => ({}));
-        if (standingsResponse.status === 401) {
-          alert('ESPN session not found. Please run "npm run espn-login" first to capture your login session.');
-        } else {
-          alert(`Failed to fetch teams: ${errorData.error || 'Unknown error'}`);
-        }
-        setLoadingTeams(false);
+  // Load teams from database using existing pattern
+  const loadTeams = useCallback(
+    async (settings: LeagueSettings | null, showSpinner = true) => {
+      if (!settings?.leagueId) {
+        setTeams([]);
+        setError('Use the Refresh League button in the header to load an ESPN league.');
         return;
       }
 
-      const standingsData = await standingsResponse.json();
-      console.log('Standings data received:', standingsData);
-      
-      // Handle both array and object responses
-      let teamsArray: StandingsEntry[] = [];
-      if (Array.isArray(standingsData)) {
-        teamsArray = standingsData;
-      } else if (standingsData && typeof standingsData === 'object') {
-        // The ESPN API returns { success: true, standings: [...], ... }
-        if (Array.isArray(standingsData.standings)) {
-          teamsArray = standingsData.standings;
-        } else if (Array.isArray(standingsData.teams)) {
-          teamsArray = standingsData.teams;
-        } else if (Array.isArray(standingsData.data)) {
-          teamsArray = standingsData.data;
-        } else {
-          console.error('Unexpected response format:', standingsData);
-          alert('Unexpected response format from ESPN API. The response should contain a standings array. Check the console for details.');
-          setLoadingTeams(false);
-          return;
-        }
+      if (showSpinner) {
+        setLoadingTeams(true);
       }
+      setError(null);
 
-      if (teamsArray.length > 0) {
-        const teamsList = teamsArray.map((entry: StandingsEntry, index: number) => ({
-          id: entry.teamName || String(entry.rank || index),
-          teamName: entry.teamName || 'Unknown Team',
+      try {
+        const params = new URLSearchParams({ leagueId: settings.leagueId });
+        if (settings.season) {
+          params.set('season', settings.season);
+        }
+
+        const res = await fetch(`/api/fantasy/teams?${params.toString()}`, {
+          cache: 'no-store',
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error(data?.error || 'Failed to load teams from database');
+        }
+
+        // API returns { teams: [...] }, so extract the teams array
+        const teamsArray = data.teams || (Array.isArray(data) ? data : []);
+        const teamsList = teamsArray.map((team: any) => ({
+          id: team.id || team.teamName,
+          teamName: team.teamName || 'Unknown Team',
+          ownerName: team.ownerName,
         }));
         
-        console.log('Setting teams:', teamsList);
         setTeams(teamsList);
         
-        // Also set standings
-        setStandings(teamsArray);
-      } else {
-        alert('No teams found in the response. Please check your League ID and Season.');
+        if (teamsList.length === 0) {
+          setError('No teams found in the database for the selected league. Run the refresh again to import rosters.');
+        }
+      } catch (err: any) {
+        setError(err?.message || 'Failed to load teams');
+        setTeams([]);
+      } finally {
+        if (showSpinner) {
+          setLoadingTeams(false);
+        }
       }
-    } catch (error) {
-      console.error('Failed to fetch teams:', error);
-      alert(`Error fetching teams: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setLoadingTeams(false);
-    }
-  }
+    },
+    []
+  );
 
-  // Fetch standings
-  async function fetchStandings() {
-    if (!leagueId || !season) return;
-    
-    setLoadingStandings(true);
-    try {
-      const response = await fetch(`/api/fantasy/espn-standings?leagueId=${leagueId}&season=${season}`);
-      if (response.ok) {
-        const data = await response.json();
-        const standingsArray = data.standings || data;
-        setStandings(Array.isArray(standingsArray) ? standingsArray : []);
+  // Load standings
+  const loadStandings = useCallback(
+    async (settings: LeagueSettings | null) => {
+      if (!settings?.leagueId) {
+        setStandings([]);
+        return;
       }
-    } catch (error) {
-      console.error('Failed to fetch standings:', error);
-    } finally {
-      setLoadingStandings(false);
-    }
-  }
+
+      setLoadingStandings(true);
+      try {
+        const params = new URLSearchParams({ 
+          leagueId: settings.leagueId,
+          season: settings.season || '',
+        });
+        const response = await fetch(`/api/fantasy/espn-standings?${params.toString()}`);
+        if (response.ok) {
+          const data = await response.json();
+          const standingsArray = data.standings || data;
+          setStandings(Array.isArray(standingsArray) ? standingsArray : []);
+        }
+      } catch (error) {
+        console.error('Failed to load standings:', error);
+      } finally {
+        setLoadingStandings(false);
+      }
+    },
+    []
+  );
+
+  // Load league settings on mount
+  useEffect(() => {
+    const stored = loadLeagueSettings();
+    setLeagueSettings(stored);
+    loadTeams(stored ?? null, true);
+    loadStandings(stored ?? null);
+
+    const unsubscribe = onLeagueSettingsUpdated(updated => {
+      setLeagueSettings(updated);
+      loadTeams(updated ?? null, true);
+      loadStandings(updated ?? null);
+    });
+
+    return () => {
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    };
+  }, [loadTeams, loadStandings]);
+
 
   // Load a suggested trade into the analyzer
   async function loadSuggestedTrade(suggestion: any) {
@@ -300,8 +324,8 @@ export default function TradeAnalyzerPage() {
 
   // Fetch AI-powered trade suggestions
   async function fetchTradeSuggestions() {
-    if (!selectedTeamA || !leagueId || !season) {
-      alert('Please select a team first');
+    if (!selectedTeamA || !leagueSettings?.leagueId) {
+      alert('Please select a team first and ensure league is synced');
       return;
     }
 
@@ -317,13 +341,16 @@ export default function TradeAnalyzerPage() {
         playerNames: teamAPlayers.map(p => p.name),
       });
       
+      // Normalize team name (convert abbrev to full name if needed)
+      const normalizedTeamName = normalizeTeamName(selectedTeamA);
+      
       const response = await fetch('/api/trade-analyzer/suggestions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          teamName: selectedTeamA,
-          leagueId,
-          season,
+          teamName: normalizedTeamName,
+          leagueId: leagueSettings.leagueId,
+          season: leagueSettings.season || '2026',
           yourPlayerIds: playerIds,
           maxSuggestions: 10,
         }),
@@ -494,10 +521,10 @@ export default function TradeAnalyzerPage() {
             sideB: teamBPlayers.map(p => ({ playerId: p.id, nhlId: p.nhlId })),
             sideAName: selectedTeamA || 'Team A',
             sideBName: selectedTeamB || 'Team B',
-            season: '20252026',
+            season: leagueSettings?.season ? convertSeasonFormat(leagueSettings.season) : '20252026',
             timePeriod: 'season',
             myTeamId: selectedTeamA,
-            leagueId: leagueId,
+            leagueId: leagueSettings?.leagueId,
           }
         : {
             sideA: teamAPlayers.map(p => p.nhlId.toString()),
@@ -582,118 +609,100 @@ export default function TradeAnalyzerPage() {
     }
   }
 
-  // Note: Teams are loaded manually via the "Load Teams" button
+  // Helper function to convert season format
+  function convertSeasonFormat(season: string): string {
+    if (season.length === 8) return season;
+    if (season.length === 4) {
+      const endYear = parseInt(season);
+      const startYear = endYear - 1;
+      return `${startYear}${endYear}`;
+    }
+    return '20252026';
+  }
 
   const projectedStandings = analysis ? getProjectedStandings() : standings;
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-7xl">
-      <div className="mb-8">
-        <h1 className="text-4xl font-bold text-gray-900 mb-2">
-          Fantasy Hockey Trade Analyzer
-        </h1>
-        <p className="text-gray-600">
-          Advanced trade analysis using True Player Value (TPV), ROS projections, risk metrics, and contextual adjustments
-        </p>
-      </div>
-
-      {/* League Configuration and Team Selection */}
-      <div className="bg-white rounded-lg shadow-md p-6 mb-8">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">League Setup</h2>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              League ID
-            </label>
-            <input
-              type="text"
-              value={leagueId}
-              onChange={(e) => setLeagueId(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900"
-              placeholder="91445140"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Season
-            </label>
-            <input
-              type="text"
-              value={season}
-              onChange={(e) => setSeason(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900"
-              placeholder="2026"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Team A {selectedTeamA && <span className="text-blue-600">✓</span>}
-            </label>
-            <select
-              value={selectedTeamA}
-              onChange={(e) => setSelectedTeamA(e.target.value)}
-              className={`w-full px-3 py-2 border rounded-md text-gray-900 ${
-                selectedTeamA 
-                  ? 'border-blue-500 bg-blue-50 font-semibold' 
-                  : 'border-gray-300'
-              }`}
-            >
-              <option value="">Select Team A</option>
-              {teams.map((team) => (
-                <option key={team.id} value={team.teamName}>
-                  {team.teamName}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Team B {selectedTeamB && <span className="text-purple-600">✓</span>}
-            </label>
-            <select
-              value={selectedTeamB}
-              onChange={(e) => setSelectedTeamB(e.target.value)}
-              className={`w-full px-3 py-2 border rounded-md text-gray-900 ${
-                selectedTeamB 
-                  ? 'border-purple-500 bg-purple-50 font-semibold' 
-                  : 'border-gray-300'
-              }`}
-            >
-              <option value="">Select Team B</option>
-              {teams.map((team) => (
-                <option key={team.id} value={team.teamName}>
-                  {team.teamName}
-                </option>
-              ))}
-            </select>
-          </div>
+    <div className="min-h-screen bg-gray-50">
+      <Header />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold text-gray-900 mb-2">
+            Trade Analyzer
+          </h1>
+          <p className="text-gray-600">
+            Analyze fantasy hockey trades using category-based analysis, Z-scores, and win contribution metrics
+          </p>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={fetchTeams}
-            disabled={loadingTeams || loadingStandings}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
-          >
-            {loadingTeams ? 'Loading...' : teams.length > 0 ? `✓ Loaded ${teams.length} teams` : 'Load Teams'}
-          </button>
-          {teams.length > 0 && (
-            <button
-              onClick={fetchStandings}
-              disabled={loadingStandings}
-              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
-            >
-              {loadingStandings ? 'Loading...' : 'Refresh Standings'}
-            </button>
+
+        {/* Error message if league not synced */}
+        {error && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-yellow-600" />
+              <p className="text-yellow-800">{error}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Team Selection */}
+        <div className="bg-white rounded-lg shadow-md p-6 mb-8">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Select Teams</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Team A {selectedTeamA && <span className="text-blue-600">✓</span>}
+              </label>
+              <select
+                value={selectedTeamA}
+                onChange={(e) => setSelectedTeamA(e.target.value)}
+                disabled={loadingTeams || teams.length === 0}
+                className={`w-full px-3 py-2 border rounded-md text-gray-900 ${
+                  selectedTeamA 
+                    ? 'border-blue-500 bg-blue-50 font-semibold' 
+                    : 'border-gray-300'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                <option value="">Select Team A</option>
+                {teams.map((team) => (
+                  <option key={team.id} value={team.teamName}>
+                    {team.teamName}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Team B {selectedTeamB && <span className="text-purple-600">✓</span>}
+              </label>
+              <select
+                value={selectedTeamB}
+                onChange={(e) => setSelectedTeamB(e.target.value)}
+                disabled={loadingTeams || teams.length === 0}
+                className={`w-full px-3 py-2 border rounded-md text-gray-900 ${
+                  selectedTeamB 
+                    ? 'border-purple-500 bg-purple-50 font-semibold' 
+                    : 'border-gray-300'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                <option value="">Select Team B</option>
+                {teams.map((team) => (
+                  <option key={team.id} value={team.teamName}>
+                    {team.teamName}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {loadingTeams && (
+            <div className="mt-4 text-sm text-gray-600">Loading teams...</div>
+          )}
+          {!loadingTeams && teams.length === 0 && leagueSettings?.leagueId && (
+            <div className="mt-4 text-sm text-yellow-600">
+              No teams found. Make sure you've synced your league using the Refresh League button in the header.
+            </div>
           )}
         </div>
-        {teams.length === 0 && !loadingTeams && (
-          <p className="text-sm text-gray-600 mt-2">
-            Click "Load Teams" to fetch teams from your ESPN league. 
-            <span className="text-xs block mt-1 text-gray-500">
-              Note: This uses stored ESPN login cookies. If you need to update your login, run: <code className="bg-gray-100 px-1 rounded">npm run espn-login</code>
-            </span>
-          </p>
-        )}
         {teams.length > 0 && (
           <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-md">
             <p className="text-sm text-green-800 font-semibold">
