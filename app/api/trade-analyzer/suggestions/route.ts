@@ -185,7 +185,7 @@ async function findTargetPlayers(
   }
   
   // Try current season first
-  // Build the where clause properly - construct player filter all at once
+  // Build the where clause properly - construct player filter correctly
   const playerFilter: any = {
     isActive: true,
   };
@@ -206,24 +206,22 @@ async function findTargetPlayers(
   
   // Add the category field filter - use explicit field name
   // Only filter if the field exists in the schema
-  const validFields = ['goals', 'assists', 'plusMinus', 'pim', 'powerPlayPoints', 
-                       'faceoffsWon', 'shotsOnGoal', 'hits', 'blockedShots', 
-                       'wins', 'shutouts', 'savePct', 'gaa'];
-  if (topCategoryField && validFields.includes(topCategoryField)) {
-    whereClause[topCategoryField] = {
-      not: null,
-    };
-  }
+  // Note: Most fields are non-nullable, so we don't need to filter for null
+  // We'll just rely on orderBy to get the best players
+  // For nullable fields, we can filter them out in post-processing if needed
   
   console.log('Querying with where clause:', JSON.stringify(whereClause, null, 2));
   console.log('OrderBy clause:', JSON.stringify(orderByClause, null, 2));
+  
+  // Ensure orderBy is valid - if empty, use a default
+  const finalOrderBy = Object.keys(orderByClause).length > 0 ? orderByClause : { goals: 'desc' };
   
   let statsQuery = await prisma.playerStats.findMany({
     where: whereClause,
     include: {
       player: true,
     },
-    orderBy: orderByClause,
+    orderBy: finalOrderBy,
     take: limit * 2, // Get more to filter
   });
   
@@ -232,7 +230,7 @@ async function findTargetPlayers(
   // If not enough, try any season
   if (statsQuery.length < 10) {
     console.log(`Not enough players for ${dbSeason}, trying any season...`);
-    // Build where clause for fallback query - construct player filter all at once
+    // Build where clause for fallback query - construct player filter correctly
     const fallbackPlayerFilter: any = {
       isActive: true,
     };
@@ -250,14 +248,8 @@ async function findTargetPlayers(
     };
     
     // Add the category field filter - use explicit field name
-    const validFields = ['goals', 'assists', 'plusMinus', 'pim', 'powerPlayPoints', 
-                         'faceoffsWon', 'shotsOnGoal', 'hits', 'blockedShots', 
-                         'wins', 'shutouts', 'savePct', 'gaa'];
-    if (topCategoryField && validFields.includes(topCategoryField)) {
-      fallbackWhereClause[topCategoryField] = {
-        not: null,
-      };
-    }
+    // Note: Most fields are non-nullable, so we don't need to filter for null
+    // We'll filter out nulls in post-processing if needed
     
     const allStatsQuery = await prisma.playerStats.findMany({
       where: fallbackWhereClause,
@@ -372,9 +364,11 @@ export async function POST(request: NextRequest) {
     
     if (!standingsResponse.ok) {
       let errorMessage = 'Failed to fetch standings';
+      let errorDetails = '';
       try {
         const errorData = await standingsResponse.json().catch(() => ({}));
         errorMessage = errorData.error || errorData.message || errorMessage;
+        errorDetails = errorData.details || errorData.hint || errorData.message || '';
       } catch (e) {
         // Ignore JSON parse errors
       }
@@ -382,10 +376,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { 
           error: errorMessage,
-          status: standingsResponse.status,
-          details: standingsResponse.status === 401 
+          message: errorDetails || (standingsResponse.status === 401 
             ? 'ESPN session expired. Please run "npm run espn-login" to refresh your session.'
-            : 'Check your league ID and season are correct.'
+            : 'Check your league ID and season are correct.'),
+          status: standingsResponse.status,
         },
         { status: standingsResponse.status }
       );

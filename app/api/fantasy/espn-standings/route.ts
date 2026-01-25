@@ -980,10 +980,26 @@ export async function GET(request: NextRequest) {
 
   } catch (error: any) {
     console.error('Error scraping ESPN standings:', error);
+    
+    // Check if it's a known error type and provide helpful message
+    let errorMessage = 'Failed to scrape ESPN standings';
+    let errorDetails = error.message || 'Unknown error';
+    let hint = '';
+    
+    if (error.message?.includes('session') || error.message?.includes('login') || error.message?.includes('401')) {
+      hint = 'ESPN session expired. Please run "npm run espn-login" to refresh your session.';
+    } else if (error.message?.includes('browser') || error.message?.includes('launch')) {
+      hint = 'Browser failed to launch. This may be a macOS permissions issue. Try: 1) Grant Full Disk Access to your terminal, 2) Restart terminal, 3) Run: npx playwright install chromium';
+    } else if (error.message?.includes('timeout')) {
+      hint = 'Request timed out. ESPN may be slow or the page structure may have changed.';
+    }
+    
     return NextResponse.json(
       { 
-        error: 'Failed to scrape ESPN standings',
-        message: error.message || 'Unknown error'
+        error: errorMessage,
+        message: errorDetails,
+        hint: hint || 'Check the console logs for more details.',
+        details: error.stack || undefined
       },
       { status: 500 }
     );

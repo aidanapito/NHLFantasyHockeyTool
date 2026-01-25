@@ -1,27 +1,19 @@
-import type { Metadata } from 'next';
-import { Outfit } from 'next/font/google';
-import './globals.css';
-
-const outfit = Outfit({
-  subsets: ['latin'],
-  display: 'swap',
-  variable: '--font-outfit',
-});
+import type { Metadata } from 'next'
+import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'NHL Fantasy Hockey Analyzer',
-  description: 'Advanced analytics for fantasy hockey',
-};
+  title: 'Fantasy Hockey Analytics',
+  description: 'Fantasy hockey analytics and trade analyzer',
+}
 
 export default function RootLayout({
   children,
 }: {
-  children: React.ReactNode;
+  children: React.ReactNode
 }) {
   return (
-    <html lang="en" className={outfit.variable}>
-      <body className={outfit.className}>{children}</body>
+    <html lang="en">
+      <body>{children}</body>
     </html>
-  );
+  )
 }
-

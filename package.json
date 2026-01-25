@@ -1,45 +1,30 @@
 {
-  "name": "fantasy-hockey-trade-analyzer",
-  "version": "2.0.0",
-  "description": "Modern Fantasy Hockey Trade Analyzer with real-time player valuation",
+  "name": "nhl-stat-analyzer",
+  "version": "1.0.0",
+  "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "test-espn": "node scripts/test-espn.js",
-    "espn-login": "tsx scripts/espn-login.ts",
-    "import-moneypuck": "tsx scripts/import-moneypuck.ts",
-    "collect-game-logs": "tsx scripts/collect-game-logs.ts",
-    "validate-db": "tsx scripts/validate-database.ts",
-    "check-duplicate-players": "tsx scripts/check-duplicate-players.ts"
+    "lint": "next lint"
   },
   "dependencies": {
-    "@prisma/client": "^6.18.0",
-    "axios": "^1.6.2",
-    "clsx": "^2.0.0",
-    "csv-parse": "^5.5.2",
-    "framer-motion": "^10.16.16",
+    "next": "^14.0.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "@prisma/client": "^5.0.0",
     "lucide-react": "^0.294.0",
-    "next": "^14.0.4",
-    "prisma": "^6.18.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "recharts": "^2.10.3",
-    "semver": "^7.7.3",
-    "zod": "^3.22.4"
+    "axios": "^1.6.0",
+    "playwright": "^1.40.0"
   },
   "devDependencies": {
-    "@types/node": "^20.10.5",
-    "@types/react": "^18.2.45",
-    "@types/react-dom": "^18.2.18",
-    "autoprefixer": "^10.4.16",
-    "eslint": "^8.56.0",
-    "eslint-config-next": "^14.0.4",
-    "playwright": "^1.56.1",
-    "postcss": "^8.4.32",
-    "tailwindcss": "^3.4.0",
-    "tsx": "^4.20.6",
-    "typescript": "^5.3.3"
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "prisma": "^5.0.0",
+    "tailwindcss": "^3.0.0",
+    "postcss": "^8.0.0",
+    "autoprefixer": "^10.0.0"
   }
 }

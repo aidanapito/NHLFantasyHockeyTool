@@ -78,15 +78,39 @@ export default function StatsDisplay() {
   useEffect(() => {
     const fetchSeasons = async () => {
       try {
-        const response = await fetch('/api/seasons');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+        
+        const response = await fetch('/api/seasons', { signal: controller.signal });
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch seasons: ${response.statusText}`);
+        }
+        
         const data = await response.json();
         if (data.success && data.seasons && data.seasons.length > 0) {
           setAvailableSeasons(data.seasons);
           // Set default to first (most recent) season if none selected
           setSelectedSeason(prev => prev || data.seasons[0]);
+        } else {
+          // Fallback: use current season if API returns no seasons
+          const now = new Date();
+          const year = now.getFullYear();
+          const month = now.getMonth();
+          const currentSeason = month < 9 ? `${year - 1}${year}` : `${year}${year + 1}`;
+          setAvailableSeasons([currentSeason]);
+          setSelectedSeason(currentSeason);
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error('Error fetching seasons:', err);
+        // Fallback: use current season
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = now.getMonth();
+        const currentSeason = month < 9 ? `${year - 1}${year}` : `${year}${year + 1}`;
+        setAvailableSeasons([currentSeason]);
+        setSelectedSeason(currentSeason);
       } finally {
         setLoadingSeasons(false);
       }
@@ -118,7 +142,14 @@ export default function StatsDisplay() {
   useEffect(() => {
     if (selectedSeason) {
       console.log('[StatsDisplay] useEffect triggered, calling fetchStats for type:', statsType, 'season:', selectedSeason);
-      fetchStats();
+      fetchStats().catch((err) => {
+        console.error('[StatsDisplay] fetchStats failed:', err);
+        setError(err.message || 'Failed to load stats');
+        setLoading(false);
+      });
+    } else {
+      // If no season selected yet, don't show loading
+      setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statsType, selectedSeason]); // Added selectedSeason dependency
@@ -535,11 +566,19 @@ export default function StatsDisplay() {
   const fetchStats = async () => {
     if (!selectedSeason) {
       console.log('[StatsDisplay] No season selected, skipping fetch');
+      setLoading(false);
       return;
     }
 
     setLoading(true);
     setError(null);
+    
+    // Safety timeout: ensure loading is cleared even if something goes wrong
+    const safetyTimeout = setTimeout(() => {
+      console.warn('[StatsDisplay] Safety timeout - clearing loading state');
+      setLoading(false);
+      setError('Request took too long. Please try refreshing the page.');
+    }, 15000); // 15 second safety timeout
     
     try {
       let type: string;
@@ -595,6 +634,7 @@ export default function StatsDisplay() {
         
         console.log('[StatsDisplay] Setting stats, player count:', transformedData.data.totalPlayers);
         setStats(transformedData);
+        clearTimeout(safetyTimeout);
       } catch (fetchError: any) {
         clearTimeout(timeoutId);
         console.error('[StatsDisplay] Fetch error:', fetchError.name, fetchError.message);
@@ -604,6 +644,7 @@ export default function StatsDisplay() {
         throw fetchError;
       }
     } catch (err: any) {
+      clearTimeout(safetyTimeout);
       setError(err.message || 'An error occurred while fetching stats');
       console.error('Error fetching stats:', err);
     } finally {

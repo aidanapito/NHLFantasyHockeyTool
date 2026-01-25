@@ -1,53 +1,59 @@
-'use client'
-
 export interface LeagueSettings {
-  leagueId: string
-  season?: string
-  leagueName?: string
-  fantasyLeagueId?: string
-  lastSyncedAt?: string
+  leagueId: string;
+  season?: string;
+  lastSyncedAt?: string;
 }
 
-const STORAGE_KEY = 'fantasy-league-settings'
-const EVENT_NAME = 'league-settings-updated'
+const STORAGE_KEY = 'fantasy-league-settings';
 
 export function loadLeagueSettings(): LeagueSettings | null {
   if (typeof window === 'undefined') {
-    return null
+    return null;
   }
-  const raw = window.localStorage.getItem(STORAGE_KEY)
-  if (!raw) return null
+
   try {
-    return JSON.parse(raw) as LeagueSettings
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (!stored) {
+      return null;
+    }
+    return JSON.parse(stored) as LeagueSettings;
   } catch (error) {
-    console.warn('Failed to parse league settings from localStorage', error)
-    return null
+    console.error('Failed to load league settings:', error);
+    return null;
   }
 }
 
-export function saveLeagueSettings(settings: LeagueSettings) {
-  if (typeof window === 'undefined') return
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
-  window.dispatchEvent(new CustomEvent<LeagueSettings>(EVENT_NAME, { detail: settings }))
-}
-
-export function clearLeagueSettings() {
-  if (typeof window === 'undefined') return
-  window.localStorage.removeItem(STORAGE_KEY)
-  window.dispatchEvent(new CustomEvent<LeagueSettings | null>(EVENT_NAME, { detail: null }))
-}
-
-export function onLeagueSettingsUpdated(handler: (settings: LeagueSettings | null) => void) {
-  if (typeof window === 'undefined') return () => {}
-
-  const wrappedHandler = (event: Event) => {
-    const customEvent = event as CustomEvent<LeagueSettings | null>
-    handler(customEvent.detail ?? null)
+export function saveLeagueSettings(settings: LeagueSettings): void {
+  if (typeof window === 'undefined') {
+    return;
   }
 
-  window.addEventListener(EVENT_NAME, wrappedHandler as EventListener)
-
-  return () => window.removeEventListener(EVENT_NAME, wrappedHandler as EventListener)
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    // Trigger update event
+    window.dispatchEvent(new CustomEvent('league-settings-updated', { detail: settings }));
+  } catch (error) {
+    console.error('Failed to save league settings:', error);
+  }
 }
 
+export function onLeagueSettingsUpdated(
+  callback: (settings: LeagueSettings | null) => void
+): () => void {
+  if (typeof window === 'undefined') {
+    return () => {};
+  }
 
+  const handler = (event: CustomEvent<LeagueSettings>) => {
+    callback(event.detail);
+  };
+
+  window.addEventListener('league-settings-updated', handler as EventListener);
+
+  // Also call with current settings on subscribe
+  callback(loadLeagueSettings());
+
+  return () => {
+    window.removeEventListener('league-settings-updated', handler as EventListener);
+  };
+}

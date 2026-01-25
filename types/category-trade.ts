@@ -231,3 +231,4 @@ export interface CategoryTradeSuggestion {
   estimatedMatchupWinIncrease: number  // How much this increases weekly matchup win probability
 }
 
+

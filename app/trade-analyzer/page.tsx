@@ -358,7 +358,10 @@ export default function TradeAnalyzerPage() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to fetch suggestions');
+        const errorMsg = errorData.error || errorData.message || 'Failed to fetch suggestions';
+        const details = errorData.details || errorData.hint || errorData.message || '';
+        const fullError = details ? `${errorMsg}\n\n${details}` : errorMsg;
+        throw new Error(fullError);
       }
 
       const data = await response.json();
@@ -1639,7 +1642,7 @@ export default function TradeAnalyzerPage() {
                     
                     return (
                       <div key={idx} className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                        <div className="font-medium text-lg mb-2">{playerName}</div>
+                        <div className="font-medium text-lg mb-2 text-gray-900">{playerName}</div>
                         {!useCategoryAnalysis && playerData.tpv !== undefined && (
                           <div className="text-sm text-gray-600 mb-2">
                             <strong>TPV:</strong> {playerData.tpv.toFixed(1)}
@@ -1651,7 +1654,7 @@ export default function TradeAnalyzerPage() {
                           </div>
                         )}
                         {!useCategoryAnalysis && playerData.riskMetrics && (
-                          <div className="text-sm space-y-1">
+                          <div className="text-sm space-y-1 text-gray-700">
                             <div>
                               <strong>Trend:</strong> {playerData.riskMetrics.trend} 
                               ({playerData.riskMetrics.trendStrength}/100)
@@ -1663,14 +1666,14 @@ export default function TradeAnalyzerPage() {
                           </div>
                         )}
                         {!useCategoryAnalysis && playerData.rosProjection && (
-                          <div className="text-sm mt-2 pt-2 border-t border-blue-200">
+                          <div className="text-sm mt-2 pt-2 border-t border-blue-200 text-gray-700">
                             <strong>ROS Projected:</strong> {playerData.rosProjection.projectedFantasyPointsPerGame.toFixed(1)} FPPG
                             <br />
                             <strong>Confidence:</strong> {playerData.rosProjection.confidence}%
                           </div>
                         )}
                         {useCategoryAnalysis && playerData.gamesRemaining !== undefined && (
-                          <div className="text-sm mt-2 pt-2 border-t border-blue-200">
+                          <div className="text-sm mt-2 pt-2 border-t border-blue-200 text-gray-700">
                             <strong>Games Remaining:</strong> {playerData.gamesRemaining}
                             <br />
                             <strong>Strength of Schedule:</strong> {playerData.strengthOfSchedule?.toFixed(0) || 'N/A'}
@@ -1706,7 +1709,7 @@ export default function TradeAnalyzerPage() {
                     
                     return (
                       <div key={idx} className="bg-purple-50 p-4 rounded-lg border border-purple-200">
-                        <div className="font-medium text-lg mb-2">{playerName}</div>
+                        <div className="font-medium text-lg mb-2 text-gray-900">{playerName}</div>
                         {!useCategoryAnalysis && playerData.tpv !== undefined && (
                           <div className="text-sm text-gray-600 mb-2">
                             <strong>TPV:</strong> {playerData.tpv.toFixed(1)}
@@ -1718,7 +1721,7 @@ export default function TradeAnalyzerPage() {
                           </div>
                         )}
                         {!useCategoryAnalysis && playerData.riskMetrics && (
-                          <div className="text-sm space-y-1">
+                          <div className="text-sm space-y-1 text-gray-700">
                             <div>
                               <strong>Trend:</strong> {playerData.riskMetrics.trend} 
                               ({playerData.riskMetrics.trendStrength}/100)
@@ -1730,14 +1733,14 @@ export default function TradeAnalyzerPage() {
                           </div>
                         )}
                         {!useCategoryAnalysis && playerData.rosProjection && (
-                          <div className="text-sm mt-2 pt-2 border-t border-purple-200">
+                          <div className="text-sm mt-2 pt-2 border-t border-purple-200 text-gray-700">
                             <strong>ROS Projected:</strong> {playerData.rosProjection.projectedFantasyPointsPerGame.toFixed(1)} FPPG
                             <br />
                             <strong>Confidence:</strong> {playerData.rosProjection.confidence}%
                           </div>
                         )}
                         {useCategoryAnalysis && playerData.gamesRemaining !== undefined && (
-                          <div className="text-sm mt-2 pt-2 border-t border-purple-200">
+                          <div className="text-sm mt-2 pt-2 border-t border-purple-200 text-gray-700">
                             <strong>Games Remaining:</strong> {playerData.gamesRemaining}
                             <br />
                             <strong>Strength of Schedule:</strong> {playerData.strengthOfSchedule?.toFixed(0) || 'N/A'}

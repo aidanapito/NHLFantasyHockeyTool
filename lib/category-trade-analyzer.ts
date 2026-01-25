@@ -599,13 +599,16 @@ export async function analyzeCategoryTrade(
     const isGoalie = position === 'G' || position.includes('G/')
     
     if (isGoalie) {
-      allGoaliesForZScore.push({
-        wins: ps.wins || 0,
-        shutouts: ps.shutouts || 0,
-        goalsAgainstAverage: ps.gaa || 0,
-        savePct: ps.savePct || 0,
-        gamesPlayed: ps.gamesPlayed,
-      })
+      // Only include goalies with actual goalie stats
+      if (ps.wins !== null || ps.shutouts !== null || ps.savePct !== null || ps.gaa !== null) {
+        allGoaliesForZScore.push({
+          wins: ps.wins || 0,
+          shutouts: ps.shutouts || 0,
+          goalsAgainstAverage: ps.gaa || 0,
+          savePct: ps.savePct || 0,
+          gamesPlayed: ps.gamesPlayed,
+        })
+      }
     } else {
       allSkatersForZScore.push({
         goals: ps.goals || 0,
@@ -727,13 +730,44 @@ export async function analyzeCategoryTrade(
         gamesPlayed: gamesPlayed,
       }
       
-      totalZScore = calculateGoalieZScore(goalieStats, allGoaliesForZScore)
+      console.log(`   Goalie stats:`, {
+        wins: goalieStats.wins,
+        shutouts: goalieStats.shutouts,
+        gaa: goalieStats.goalsAgainstAverage,
+        savePct: goalieStats.savePct,
+        gamesPlayed: goalieStats.gamesPlayed,
+        allGoaliesCount: allGoaliesForZScore.length,
+      })
       
-      // For goalies, we can't easily break down per-category Z-scores from the existing function
-      // So we'll use a simplified approach: distribute the total Z-score proportionally
-      // Or we can calculate per-category manually for goalies
+      // Convert to format expected by calculateGoalieZScore (matches GoalieStats interface)
+      const goalieStatsForCalc = {
+        wins: goalieStats.wins,
+        shutouts: goalieStats.shutouts,
+        goalsAgainstAverage: goalieStats.goalsAgainstAverage,
+        savePct: goalieStats.savePct,
+        gamesPlayed: goalieStats.gamesPlayed,
+      }
+      
+      // Ensure we have goalies to compare against
+      if (allGoaliesForZScore.length === 0) {
+        console.warn(`   ⚠️ No goalies found for Z-score comparison. Cannot calculate goalie Z-score.`)
+        totalZScore = 0
+      } else {
+        totalZScore = calculateGoalieZScore(goalieStatsForCalc, allGoaliesForZScore)
+      }
+      
+      console.log(`   Goalie total Z-score: ${totalZScore.toFixed(2)}`)
+      
+      // Calculate per-category Z-scores for goalies
       const goalieCategoryZScores = calculateGoalieCategoryZScores(goalieStats, allGoaliesForZScore)
       Object.assign(categoryZScores, goalieCategoryZScores)
+      
+      console.log(`   Goalie category Z-scores:`, {
+        W: goalieCategoryZScores.W.toFixed(2),
+        SO: goalieCategoryZScores.SO.toFixed(2),
+        'SV%': goalieCategoryZScores['SV%'].toFixed(2),
+        GAA: goalieCategoryZScores.GAA.toFixed(2),
+      })
     } else {
       // Use skater Z-score calculator
       const skaterStats: SkaterStatsForZScore = {
