@@ -246,9 +246,8 @@ export default function StatsDisplay() {
     });
     
     // Calculate Z-scores for goalies
-    const goaliesWithZScore = goalies.map((player: any) => ({
-      ...player,
-      zScore: calculateGoalieZScore(
+    const goaliesWithZScore = goalies.map((player: any) => {
+      const zScore = calculateGoalieZScore(
         {
           wins: player.wins || 0,
           shutouts: player.shutouts || 0,
@@ -263,8 +262,13 @@ export default function StatsDisplay() {
           savePct: p.savePct || 0,
           gamesPlayed: p.gamesPlayed || 0,
         }))
-      ),
-    }));
+      );
+      return {
+        ...player,
+        zScore,
+        tpv: zScore, // For goalies, TPV = zScore
+      };
+    });
     
     return [...skatersWithZScore, ...goaliesWithZScore];
   }, [stats?.data.samplePlayers]);
@@ -626,10 +630,15 @@ export default function StatsDisplay() {
         const transformedData: StatsData = {
           success: true,
           season: dbData.season || '20252026',
-          data: {
-            samplePlayers: dbData.data || [],
-            totalPlayers: dbData.count || 0,
-          },
+          data: type === 'goalies' 
+            ? {
+                sampleGoalies: dbData.data || [],
+                totalGoalies: dbData.count || 0,
+              }
+            : {
+                samplePlayers: dbData.data || [],
+                totalPlayers: dbData.count || 0,
+              },
         };
         
         console.log('[StatsDisplay] Setting stats, player count:', transformedData.data.totalPlayers);
@@ -1098,6 +1107,11 @@ export default function StatsDisplay() {
                     <span className="text-xs text-gray-500">(Z)</span>
                   </div>
                 </SortableHeader>
+                <SortableHeader field="tpv" className="px-3 py-3.5 text-right text-sm font-semibold text-gray-900 bg-green-50">
+                  <div className="flex items-center justify-end gap-1">
+                    <span className="font-bold">TPV</span>
+                  </div>
+                </SortableHeader>
                 <SortableHeader field="team" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Team</SortableHeader>
                 <SortableHeader field="gamesPlayed" className="px-3 py-3.5 text-right text-sm font-semibold text-gray-900">GP</SortableHeader>
                 <SortableHeader field="wins" className="px-3 py-3.5 text-right text-sm font-semibold text-gray-900">W</SortableHeader>
@@ -1112,9 +1126,8 @@ export default function StatsDisplay() {
                 if (!stats.data.sampleGoalies) return [];
                 
                 // Calculate Z-scores for goalies
-                const goaliesWithZScore = stats.data.sampleGoalies.map((goalie: any) => ({
-                  ...goalie,
-                  zScore: calculateGoalieZScore(
+                const goaliesWithZScore = stats.data.sampleGoalies.map((goalie: any) => {
+                  const zScore = calculateGoalieZScore(
                     {
                       wins: goalie.wins || 0,
                       shutouts: goalie.shutouts || 0,
@@ -1129,8 +1142,13 @@ export default function StatsDisplay() {
                       savePct: g.savePct || 0,
                       gamesPlayed: g.gamesPlayed || 0,
                     }))
-                  ),
-                }));
+                  );
+                  return {
+                    ...goalie,
+                    zScore,
+                    tpv: zScore, // For goalies, TPV = zScore
+                  };
+                });
                 
                 let filtered = goaliesWithZScore;
                 
@@ -1173,6 +1191,10 @@ export default function StatsDisplay() {
                   } else if (sortField === 'zScore') {
                     aValue = parseFloat(String(a.zScore || '0')) || 0;
                     bValue = parseFloat(String(b.zScore || '0')) || 0;
+                    isNumber = true;
+                  } else if (sortField === 'tpv') {
+                    aValue = parseFloat(String(a.tpv || '0')) || 0;
+                    bValue = parseFloat(String(b.tpv || '0')) || 0;
                     isNumber = true;
                   } else {
                     // For numeric goalie fields
@@ -1250,6 +1272,11 @@ export default function StatsDisplay() {
                   <td className="whitespace-nowrap px-3 py-4 text-sm text-right bg-blue-50">
                     <span className={`font-semibold ${(goalie.zScore || 0) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
                       {(goalie.zScore || 0).toFixed(2)}
+                    </span>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-4 text-sm text-right bg-green-50">
+                    <span className={`font-semibold ${(goalie.tpv || 0) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                      {(goalie.tpv || 0).toFixed(2)}
                     </span>
                   </td>
                   <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{goalie.team}</td>

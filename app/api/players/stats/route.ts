@@ -113,6 +113,7 @@ export async function GET(request: NextRequest) {
           shotsAgainst: stats.shotsAgainst || 0,
           goalsAgainst: stats.goalsAgainst || 0,
           savePct: stats.savePct || 0,
+          gaa: stats.gaa || 0,
           goalsAgainstAverage: stats.gaa || 0,
           shutouts: stats.shutouts || 0,
         });
